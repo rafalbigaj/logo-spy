@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"runtime"
 )
 
 type App struct {
@@ -66,6 +67,8 @@ type ViewData struct {
 }
 
 func main() {
+	runtime.GOMAXPROCS(runtime.NumCPU())
+
 	app.Init()
 	defer app.Close()
 
