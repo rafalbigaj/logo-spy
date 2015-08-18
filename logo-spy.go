@@ -104,7 +104,6 @@ func processLogin(w http.ResponseWriter, r *http.Request, s *Session) {
 	code, _ := strconv.Atoi(r.FormValue("code"))
 	var employee Employee
 	err := app.DB.C("employees").Find(bson.M{"code": code}).One(&employee)
-
 	if err == nil {
 		err = s.StoreEmployeeId(employee.Id)
 		if err == nil {
@@ -114,7 +113,7 @@ func processLogin(w http.ResponseWriter, r *http.Request, s *Session) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 	} else {
-		http.NotFound(w, r)
+		http.Error(w, "Invalid employee code", http.StatusUnauthorized)
 	}
 }
 

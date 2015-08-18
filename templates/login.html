@@ -2,6 +2,11 @@
 <div class="container hidden" id="login-container">
   <form class="form-signin js-signin">
     <h2 class="form-signin-heading">Please sign in</h2>
+
+    <div class="alert alert-danger collapse" role="alert">
+      The given code is invalid!
+    </div>
+
     <label for="inputCode" class="sr-only">Employee code</label>
     <input type="tel" id="inputCode" name="code" class="form-control" placeholder="Employee code" required="true" autofocus="true">
     <div class="checkbox">
@@ -11,5 +16,5 @@
     </div>
     <button class="btn btn-lg btn-primary btn-block">Sign in</button>
   </form>
-</div>  
+</div>
 {{end}}

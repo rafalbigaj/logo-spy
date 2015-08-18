@@ -12,10 +12,14 @@
   $(".form-signin button").click(function() {
     var $this = $(this);
     $this.prop("disabled", true);
+    $('.js-signin .alert').fadeOut();
     $.post("/login", $(".js-signin").serialize(), null, 'json')
       .done(function(data) {
         global.employee = data;
         $('body').trigger('refresh');
+      })
+      .fail(function() {
+        $('.js-signin .alert').fadeIn();
       })
       .always(function() {
         $this.prop("disabled", false);
@@ -32,6 +36,21 @@
       })
   });
 
+  $(".js-clients").click(function() {
+    $.get("/clients", "json")
+      .done(function(clients) {
+        var compiled = _.template($(".js-clients script").text());
+        var rows = _.map(clients, function(client) { return compiled(client) });
+        $(".js-clients table tbody").html(rows.join("\n"));
+      });
+  });
+
   $(function() { $('body').trigger('refresh'); });
 
 })(jQuery, window);
+
+function printAge(birthday) {
+  var now = moment();
+  var b = moment(birthday);
+  return now.diff(b, 'years') + " years";
+}
