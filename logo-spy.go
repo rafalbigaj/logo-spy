@@ -1,7 +1,7 @@
 package main
 
 import (
-	"fmt"
+	"encoding/json"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/sessions"
 	"gopkg.in/mgo.v2"
@@ -11,8 +11,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
 	"runtime"
+	"strconv"
+	"time"
 )
 
 type App struct {
@@ -56,14 +57,22 @@ func (app *App) Close() {
 var app App
 
 type Employee struct {
-	Id    bson.ObjectId `bson:"_id"`
-	Name  string        `bson:"name"`
-	Code  string        `bson:"code"`
-	Admin bool          `bson:"admin"`
+	Id    bson.ObjectId `json:"id" bson:"_id,omitempty"`
+	Name  string        `json:"name"`
+	Code  int           `json:"code"`
+	Admin bool          `json:"admin"`
+}
+
+type Client struct {
+	Id           bson.ObjectId `json:"id" bson:"_id,omitempty"`
+	Name         string        `json:"name"`
+	Birthday     time.Time     `json:"birthday"`
+	SpecialPrice int           `json:"special_price"`
+	From         time.Time     `json:"from"`
 }
 
 type ViewData struct {
-	Content string
+	Employee *Employee
 }
 
 func main() {
@@ -73,9 +82,10 @@ func main() {
 	defer app.Close()
 
 	rtr := mux.NewRouter()
-	rtr.HandleFunc("/login", showLogin).Methods("GET")
-	rtr.HandleFunc("/login", processLogin).Methods("POST")
-	rtr.HandleFunc("/", showRecord).Methods("GET")
+	rtr.Handle("/login", SessionHandler(processLogin, app.Store)).Methods("POST")
+	rtr.Handle("/logout", SessionHandler(processLogout, app.Store)).Methods("GET")
+	rtr.Handle("/clients", EmployeeHandler(showClients, &app)).Methods("GET")
+	rtr.Handle("/", EmployeeHandler(showIndex, &app)).Methods("GET")
 
 	fs := http.FileServer(http.Dir("static"))
 	http.Handle("/static/", http.StripPrefix("/static/", fs))
@@ -90,53 +100,52 @@ func main() {
 	http.ListenAndServe(":"+port, nil)
 }
 
-func showLogin(w http.ResponseWriter, r *http.Request) {
-	renderTemplate(w, "login")
-}
-
-func processLogin(w http.ResponseWriter, r *http.Request) {
-	fmt.Println(r.FormValue("code"))
+func processLogin(w http.ResponseWriter, r *http.Request, s *Session) {
 	code, _ := strconv.Atoi(r.FormValue("code"))
-
-	employee := Employee{}
-	fmt.Println(bson.M{"code": code})
+	var employee Employee
 	err := app.DB.C("employees").Find(bson.M{"code": code}).One(&employee)
-	if err != nil {
-		session, err := app.Store.Get(r, "logo-spy")
+
+	if err == nil {
+		err = s.StoreEmployeeId(employee.Id)
 		if err == nil {
-			session.Values["user-id"] = employee.Id
-			session.Save(r, w)
-			http.Redirect(w, r, "/", http.StatusFound)
+			w.Header().Set("Content-Type", "application/vnd.api+json")
+			json.NewEncoder(w).Encode(employee)
 		} else {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 	} else {
-		http.Redirect(w, r, "/login", http.StatusFound)
+		http.NotFound(w, r)
 	}
 }
 
-func showRecord(w http.ResponseWriter, r *http.Request) {
-	session, err := app.Store.Get(r, "logo-spy")
-	if err == nil {
-		fmt.Println(session.Values)
-		employeeId := session.Values["user-id"]
-		if employeeId != nil {
-			renderTemplate(w, "index")
+func processLogout(w http.ResponseWriter, r *http.Request, s *Session) {
+	s.ClearEmployee()
+}
+
+func showIndex(w http.ResponseWriter, r *http.Request, e *Employee) {
+	data := ViewData{Employee: e}
+	renderTemplate(w, &data)
+}
+
+func showClients(w http.ResponseWriter, r *http.Request, e *Employee) {
+	if e != nil {
+		var clients []Client
+		err := app.DB.C("clients").Find(bson.M{}).Sort("name").All(&clients)
+		if err == nil {
+			w.Header().Set("Content-Type", "application/vnd.api+json")
+			json.NewEncoder(w).Encode(clients)
 		} else {
-			http.Redirect(w, r, "/login", http.StatusFound)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 	} else {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Please log in", http.StatusUnauthorized)
 	}
 }
 
-func renderTemplate(w http.ResponseWriter, tmpl_name string) {
-	tmpl := app.Templates[tmpl_name+".html"]
-	if tmpl != nil {
-		tmpl.ExecuteTemplate(w, "layout", nil)
-	} else {
-		message := fmt.Sprintf("Template '%s' not found", tmpl_name)
-		log.Printf(message)
-		http.Error(w, message, http.StatusInternalServerError)
+func renderTemplate(w http.ResponseWriter, data *ViewData) {
+	tmpl := template.Must(template.ParseGlob("templates/*.html"))
+	err := tmpl.ExecuteTemplate(w, "layout", data)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
