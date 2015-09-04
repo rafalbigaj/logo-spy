@@ -1,0 +1,8 @@
+logo-spy:
+  build: .
+  ports:
+   - "3100:3100"
+  links:
+   - mongo
+mongo:
+  image: mongo

@@ -27,7 +27,12 @@ func (app *App) Init() {
 	var err error
 
 	app.Store = sessions.NewCookieStore([]byte("07FdEM5Obo7BM2Kn4e1m-tZCC3IMfWLan0ealKM31"))
-	app.Mongo, err = mgo.Dial("localhost")
+
+	mongo_host := os.Getenv("MONGO_HOST")
+	if len(mongo_host) == 0 {
+		mongo_host = "localhost"
+	}
+	app.Mongo, err = mgo.Dial(mongo_host)
 	if err != nil {
 		panic(err)
 	}

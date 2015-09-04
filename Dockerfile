@@ -1,0 +1,6 @@
+FROM golang:onbuild
+
+ENV PORT 3100
+ENV MONGO_HOST mongo
+
+EXPOSE $PORT
