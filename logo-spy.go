@@ -10,17 +10,17 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"path/filepath"
 	"runtime"
 	"strconv"
 	"time"
 )
 
 type App struct {
-	Store     *sessions.CookieStore
-	Mongo     *mgo.Session
-	DB        *mgo.Database
-	Templates map[string]*template.Template
+	Store         *sessions.CookieStore
+	Mongo         *mgo.Session
+	DB            *mgo.Database
+	TemplatesPath string
+	StaticPath    string
 }
 
 func (app *App) Init() {
@@ -39,19 +39,14 @@ func (app *App) Init() {
 	app.Mongo.SetMode(mgo.Monotonic, true)
 	app.DB = app.Mongo.DB("logo-spy")
 
-	app.Templates = make(map[string]*template.Template)
-
-	layout_path := "templates/layout.html"
-	tmpl_paths, err := filepath.Glob("templates/*.html")
-	if err != nil {
-		panic(err)
+	app.TemplatesPath = os.Getenv("TEMPLATES_PATH")
+	if len(app.TemplatesPath) == 0 {
+		app.TemplatesPath = "templates"
 	}
-	for _, tmpl_path := range tmpl_paths {
-		tmpl_name := filepath.Base(tmpl_path)
-		if tmpl_name != "layout.html" {
-			files := []string{tmpl_path, layout_path}
-			app.Templates[tmpl_name] = template.Must(template.ParseFiles(files...))
-		}
+
+	app.StaticPath = os.Getenv("STATIC_PATH")
+	if len(app.StaticPath) == 0 {
+		app.StaticPath = "static"
 	}
 }
 
@@ -92,7 +87,7 @@ func main() {
 	rtr.Handle("/clients", EmployeeHandler(showClients, &app)).Methods("GET")
 	rtr.Handle("/", EmployeeHandler(showIndex, &app)).Methods("GET")
 
-	fs := http.FileServer(http.Dir("static"))
+	fs := http.FileServer(http.Dir(app.StaticPath))
 	http.Handle("/static/", http.StripPrefix("/static/", fs))
 
 	http.Handle("/", rtr)
@@ -147,7 +142,7 @@ func showClients(w http.ResponseWriter, r *http.Request, e *Employee) {
 }
 
 func renderTemplate(w http.ResponseWriter, data *ViewData) {
-	tmpl := template.Must(template.ParseGlob("templates/*.html"))
+	tmpl := template.Must(template.ParseGlob(app.TemplatesPath + "/*.html"))
 	err := tmpl.ExecuteTemplate(w, "layout", data)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

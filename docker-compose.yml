@@ -1,8 +1,17 @@
 logo-spy:
   build: .
   ports:
-   - "3100:3100"
+   - "3000:8080"
   links:
    - mongo
+  volumes:
+  - ~/projects/logo-spy/static:/srv/logo-spy/static
+  - ~/projects/logo-spy/templates:/srv/logo-spy/templates
+  environment:
+    PORT: 8080
+    STATIC_PATH: /srv/logo-spy/static
+    TEMPLATES_PATH: /srv/logo-spy/templates
 mongo:
   image: mongo
+  ports:
+  - "37017:27017"
