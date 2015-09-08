@@ -1,11 +1,11 @@
 (function($, global) {
   $('body').on("refresh", function() {
     if (global.employee===undefined) {
-      $("#login-container").removeClass('hidden');
-      $("#main-container").addClass('hidden')
+      $("#login-container").fadeIn();
+      $("#main-container").fadeOut();
     } else {
-      $("#login-container").addClass('hidden');
-      $("#main-container").removeClass('hidden')
+      $("#login-container").fadeOut();
+      $("#main-container").fadeIn();
     }
   });
 

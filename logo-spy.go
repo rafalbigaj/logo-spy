@@ -28,30 +28,42 @@ func (app *App) Init() {
 
 	app.Store = sessions.NewCookieStore([]byte("07FdEM5Obo7BM2Kn4e1m-tZCC3IMfWLan0ealKM31"))
 
-	mongo_host := os.Getenv("MONGO_HOST")
-	if len(mongo_host) == 0 {
-		mongo_host = "localhost"
-	}
+	mongo_host := GetenvDefault("MONGO_HOST", "localhost")
+	log.Printf("Connecting to MongoDB: %s...", mongo_host)
 	app.Mongo, err = mgo.Dial(mongo_host)
 	if err != nil {
 		panic(err)
 	}
 	app.Mongo.SetMode(mgo.Monotonic, true)
 	app.DB = app.Mongo.DB("logo-spy")
+	app.InitDB()
 
-	app.TemplatesPath = os.Getenv("TEMPLATES_PATH")
-	if len(app.TemplatesPath) == 0 {
-		app.TemplatesPath = "templates"
-	}
-
-	app.StaticPath = os.Getenv("STATIC_PATH")
-	if len(app.StaticPath) == 0 {
-		app.StaticPath = "static"
-	}
+	app.TemplatesPath = GetenvDefault("TEMPLATES_PATH", "templates")
+	app.StaticPath = GetenvDefault("STATIC_PATH", "static")
 }
 
 func (app *App) Close() {
 	app.Mongo.Close()
+}
+
+func (app *App) InitDB() {
+	employees := app.DB.C("employees")
+	count, err := employees.Count()
+	if err != nil {
+		panic(err)
+	}
+	if count == 0 {
+		admin := Employee{Name: "admin", Code: 1234, Admin: true}
+		employees.Insert(admin)
+	}
+}
+
+func GetenvDefault(key string, default_value string) string {
+	value := os.Getenv(key)
+	if len(value) == 0 {
+		value = default_value
+	}
+	return value
 }
 
 var app App
@@ -86,6 +98,9 @@ func main() {
 	rtr.Handle("/logout", SessionHandler(processLogout, app.Store)).Methods("GET")
 	rtr.Handle("/clients", EmployeeHandler(showClients, &app)).Methods("GET")
 	rtr.Handle("/", EmployeeHandler(showIndex, &app)).Methods("GET")
+
+	log.Printf("Serving static files from: %s.", app.StaticPath)
+	log.Printf("Templates directory: %s.", app.TemplatesPath)
 
 	fs := http.FileServer(http.Dir(app.StaticPath))
 	http.Handle("/static/", http.StripPrefix("/static/", fs))

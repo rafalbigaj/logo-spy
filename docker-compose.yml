@@ -5,12 +5,12 @@ logo-spy:
   links:
    - mongo
   volumes:
-  - ~/projects/logo-spy/static:/srv/logo-spy/static
-  - ~/projects/logo-spy/templates:/srv/logo-spy/templates
+  - ./static:/srv/app/static
+  - ./templates:/srv/app/templates
   environment:
     PORT: 8080
-    STATIC_PATH: /srv/logo-spy/static
-    TEMPLATES_PATH: /srv/logo-spy/templates
+    STATIC_PATH: /srv/app/static
+    TEMPLATES_PATH: /srv/app/templates
 mongo:
   image: mongo
   ports:
