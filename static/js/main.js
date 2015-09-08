@@ -1,11 +1,11 @@
 (function($, global) {
   $('body').on("refresh", function() {
     if (global.employee===undefined) {
-      $("#login-container").fadeIn();
-      $("#main-container").fadeOut();
+      $("#login-container").show();
+      $("#main-container").hide();
     } else {
-      $("#login-container").fadeOut();
-      $("#main-container").fadeIn();
+      $("#login-container").hide();
+      $("#main-container").show();
     }
   });
 
