@@ -1,6 +1,11 @@
 {{define "clients"}}
-<div class="panel panel-default collapse js-clients">
-  <div class="panel-heading">Clients</div>
+<div class="panel panel-default collapse" id="clients">
+  <div class="panel-heading clearfix">
+    <span class="h4">Clients</span>
+    <a href="#" class="btn btn-primary active pull-right" role="button" data-toggle="modal" data-target=".js-add-client">
+      <span class="glyphicon glyphicon-plus" aria-hidden="true"></span>
+    </a>
+  </div>
   <div class="panel-body">
 	<div class="table-responsive">
 	  <table class="table table-hover">
@@ -10,7 +15,7 @@
 		    	<th>Age</th>
 		    </tr>
 	    </thead>
-	    <tbody>	    	 	
+	    <tbody class="items">	    	 	
 	    </tbody>
 	  </table>
 	</div>
@@ -22,5 +27,44 @@
       <td><%= printAge(birthday) %></td>
     </tr>  
   </script>
+</div>
+
+<div class="modal fade js-add-client" tabindex="-1" role="dialog" aria-labelledby="addClientModal">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+        <h4 class="modal-title">Add Client Data</h4>
+      </div>
+      <div class="modal-body">
+        <form>
+          <div class="form-group form-group-lg">
+            <label for="clientName">Name</label>
+            <input type="text" name="name" class="form-control" id="clientName" placeholder="Name and Surname">
+          </div>
+          <div class="form-group">
+            <label for="clientEmail">Email address</label>
+            <input type="email" name="email" class="form-control" id="clientEmail" placeholder="Email">
+          </div>
+          <div class="form-group">
+            <label for="clientTel">Phone number</label>
+            <input type="tel" name="tel" class="form-control" id="clientTel" placeholder="Phone number">
+          </div>
+          <div class="form-group">
+            <label for="clientBirthday">Birthday</label>
+            <input type="date" name="birthday" class="form-control" id="clientBirthday" placeholder="Birthday">
+          </div>
+          <div class="form-group">
+            <label for="clientPrice">Special Price</label>
+            <input type="number" name="special_price" class="form-control" id="clientPrice" placeholder="Fill special price if present">
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-default" data-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary">Save changes</button>
+      </div>
+    </div>
+  </div>
 </div>
 {{end}}

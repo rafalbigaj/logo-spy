@@ -78,6 +78,8 @@ type Employee struct {
 type Client struct {
 	Id           bson.ObjectId `json:"id" bson:"_id,omitempty"`
 	Name         string        `json:"name"`
+	Email        string        `json:"email"`
+	Tel          string        `json:"tel"`
 	Birthday     time.Time     `json:"birthday"`
 	SpecialPrice int           `json:"special_price"`
 	From         time.Time     `json:"from"`
@@ -97,6 +99,7 @@ func main() {
 	rtr.Handle("/login", SessionHandler(processLogin, app.Store)).Methods("POST")
 	rtr.Handle("/logout", SessionHandler(processLogout, app.Store)).Methods("GET")
 	rtr.Handle("/clients", EmployeeHandler(showClients, &app)).Methods("GET")
+	rtr.Handle("/clients", EmployeeHandler(createClient, &app)).Methods("PUT")
 	rtr.Handle("/", EmployeeHandler(showIndex, &app)).Methods("GET")
 
 	log.Printf("Serving static files from: %s.", app.StaticPath)
@@ -153,6 +156,23 @@ func showClients(w http.ResponseWriter, r *http.Request, e *Employee) {
 		}
 	} else {
 		http.Error(w, "Please log in", http.StatusUnauthorized)
+	}
+}
+
+func createClient(w http.ResponseWriter, r *http.Request, e *Employee) {
+	decoder := json.NewDecoder(r.Body)
+	var client Client
+	err := decoder.Decode(&client)
+	if err == nil {
+		err := app.DB.C("clients").Insert(&client)
+		if err == nil {
+			w.Header().Set("Content-Type", "application/vnd.api+json")
+			json.NewEncoder(w).Encode(client)
+		}
+	}
+
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
 

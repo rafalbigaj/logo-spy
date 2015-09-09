@@ -1,5 +1,5 @@
 (function($, global) {
-  $('body').on("refresh", function() {
+  $('body').on("refresh", function(_, data) {
     if (global.employee===undefined) {
       $("#login-container").show();
       $("#main-container").hide();
@@ -36,12 +36,36 @@
       })
   });
 
-  $(".js-clients").click(function() {
+  $("nav a.js-collection").click(function() {
+    var $this = $(this);
+    var $parent = $this.parent('li');
+    var $target = $($this.attr('data-target'));
+    $("nav li").removeClass('active');
+    $parent.addClass('active');
+    $("#navbar-collapse-1").collapse('hide');
+    $(".panel").hide();
+    $target.show();
+    $target.trigger('refresh');
+  });
+
+  $("#clients").on('refresh', function() {
+    var $panel = $(this);
     $.get("/clients", "json")
       .done(function(clients) {
-        var compiled = _.template($(".js-clients script").text());
-        var rows = _.map(clients, function(client) { return compiled(client) });
-        $(".js-clients table tbody").html(rows.join("\n"));
+        var compiled = _.template($panel.find("script").text());
+        var items = _.map(clients, function(client) { return compiled(client) });
+        $panel.find("items").html(items.join("\n"));
+      });
+  });
+
+  $(".js-add-client button.btn-primary").click(function() {
+    var json = $('.js-add-client form').serializeJSON();
+    $.ajax({
+      url: '/clients',
+      type: 'PUT',
+      data: json
+    }).done(function() {
+        $("#clients").trigger('refresh');
       });
   });
 
