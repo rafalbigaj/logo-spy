@@ -14,7 +14,7 @@
       <div class="collapse navbar-collapse" id="navbar-collapse-1">
         <ul class="nav navbar-nav">
           <li class="active">
-            <a href="#" class="js-collection" data-target="#records"><span class="glyphicon glyphicon-piggy-bank" aria-hidden="true"></span> Records</a>
+            <a href="#" class="js-collection" data-target="#records"><span class="glyphicon glyphicon-piggy-bank" aria-hidden="true"></span> Incomes</a>
           </li>
           <li>
             <a href="#" class="js-collection" data-target="#clients"><span class="glyphicon glyphicon-user" aria-hidden="true"></span> Clients</a>
@@ -26,10 +26,10 @@
       </div>
     </div>
   </nav>
+
+  {{template "records" }}
+  {{template "clients" }}
 </div>
-
-{{template "clients" }}
-
 
 <script type="text/javascript">
 {{if .}}  window.employee = {{.}};  {{end}}

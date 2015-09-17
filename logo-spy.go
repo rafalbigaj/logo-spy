@@ -69,10 +69,11 @@ func GetenvDefault(key string, default_value string) string {
 var app App
 
 type Employee struct {
-	Id    bson.ObjectId `json:"id" bson:"_id,omitempty"`
-	Name  string        `json:"name"`
-	Code  int           `json:"code"`
-	Admin bool          `json:"admin"`
+	Id        bson.ObjectId `json:"id" bson:"_id,omitempty"`
+	Name      string        `json:"name"`
+	Code      int           `json:"code"`
+	HourlyNet int           `json:"hourlyNet"`
+	Admin     bool          `json:"admin"`
 }
 
 type Client struct {
@@ -80,14 +81,90 @@ type Client struct {
 	Name         string        `json:"name"`
 	Email        string        `json:"email"`
 	Tel          string        `json:"tel"`
-	Birthday     time.Time     `json:"birthday"`
-	SpecialPrice int           `json:"special_price"`
-	From         time.Time     `json:"from"`
+	Birthday     ShortDate     `json:"birthday"`
+	SpecialPrice int           `json:"specialPrice"`
+	Registered   time.Time     `json:"registered"`
+	LastModified time.Time     `json:"lastModified"`
+}
+
+type Record struct {
+	Id             bson.ObjectId `json:"id" bson:"_id,omitempty"`
+	EmployeeId     bson.ObjectId `json:"employeeId"`
+	ClientId       bson.ObjectId `json:"clientId"`
+	Date           DateTime      `json:"date"`
+	Price          int           `json:"price"`
+	EmployeeIncome int           `json:"employeeIncome"`
 }
 
 type ViewData struct {
 	Employee *Employee
 }
+
+type ShortDate time.Time
+
+func (d ShortDate) MarshalJSON() ([]byte, error) {
+	return []byte((time.Time(d)).Format(`"2006-01-02"`)), nil
+}
+
+func (d *ShortDate) UnmarshalJSON(data []byte) error {
+	tm, err := time.Parse(`"2006-01-02"`, string(data))
+	*d = ShortDate(tm)
+	return err
+}
+
+func (d ShortDate) GetBSON() (interface{}, error) {
+	return time.Time(d), nil
+}
+
+func (d *ShortDate) SetBSON(raw bson.Raw) error {
+	var tm time.Time
+	if err := raw.Unmarshal(&tm); err != nil {
+		return err
+	}
+	*d = ShortDate(tm)
+	return nil
+}
+
+func (d ShortDate) String() string {
+	return time.Time(d).Format(`2006-01-02`)
+}
+
+var _ json.Marshaler = (*ShortDate)(nil)
+var _ bson.Getter = (*ShortDate)(nil)
+var _ bson.Setter = (*ShortDate)(nil)
+
+type DateTime time.Time
+
+func (d DateTime) MarshalJSON() ([]byte, error) {
+	return []byte((time.Time(d)).Format(`"2006-01-02 - 15:04"`)), nil
+}
+
+func (d *DateTime) UnmarshalJSON(data []byte) error {
+	tm, err := time.Parse(`"2006-01-02 - 15:04"`, string(data))
+	*d = DateTime(tm)
+	return err
+}
+
+func (d DateTime) GetBSON() (interface{}, error) {
+	return time.Time(d), nil
+}
+
+func (d *DateTime) SetBSON(raw bson.Raw) error {
+	var tm time.Time
+	if err := raw.Unmarshal(&tm); err != nil {
+		return err
+	}
+	*d = DateTime(tm)
+	return nil
+}
+
+func (d DateTime) String() string {
+	return time.Time(d).Format(`2006-01-02 - 15:04`)
+}
+
+var _ json.Marshaler = (*DateTime)(nil)
+var _ bson.Getter = (*DateTime)(nil)
+var _ bson.Setter = (*DateTime)(nil)
 
 func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
@@ -98,8 +175,12 @@ func main() {
 	rtr := mux.NewRouter()
 	rtr.Handle("/login", SessionHandler(processLogin, app.Store)).Methods("POST")
 	rtr.Handle("/logout", SessionHandler(processLogout, app.Store)).Methods("GET")
+	rtr.Handle("/records", EmployeeHandler(showRecords, &app)).Methods("GET")
+	rtr.Handle("/records", EmployeeHandler(createRecord, &app)).Methods("PUT")
 	rtr.Handle("/clients", EmployeeHandler(showClients, &app)).Methods("GET")
 	rtr.Handle("/clients", EmployeeHandler(createClient, &app)).Methods("PUT")
+	rtr.Handle("/clients/{id}", EmployeeHandler(updateClient, &app)).Methods("POST")
+	rtr.Handle("/clients/{id}", EmployeeHandler(removeClient, &app)).Methods("DELETE")
 	rtr.Handle("/", EmployeeHandler(showIndex, &app)).Methods("GET")
 
 	log.Printf("Serving static files from: %s.", app.StaticPath)
@@ -144,6 +225,43 @@ func showIndex(w http.ResponseWriter, r *http.Request, e *Employee) {
 	renderTemplate(w, &data)
 }
 
+// Records
+
+func showRecords(w http.ResponseWriter, r *http.Request, e *Employee) {
+	if e != nil {
+		var records []Record
+		err := app.DB.C("records").Find(nil).Sort("date").Limit(100).All(&records)
+		if err == nil {
+			w.Header().Set("Content-Type", "application/vnd.api+json")
+			json.NewEncoder(w).Encode(records)
+		} else {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	} else {
+		http.Error(w, "Please log in", http.StatusUnauthorized)
+	}
+}
+
+func createRecord(w http.ResponseWriter, r *http.Request, e *Employee) {
+	decoder := json.NewDecoder(r.Body)
+	var record Record
+	err := decoder.Decode(&record)
+	log.Println(record)
+	if err == nil {
+		err := app.DB.C("records").Insert(&record)
+		if err == nil {
+			w.Header().Set("Content-Type", "application/vnd.api+json")
+			json.NewEncoder(w).Encode(record)
+		}
+	}
+
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+// Clients
+
 func showClients(w http.ResponseWriter, r *http.Request, e *Employee) {
 	if e != nil {
 		var clients []Client
@@ -164,11 +282,55 @@ func createClient(w http.ResponseWriter, r *http.Request, e *Employee) {
 	var client Client
 	err := decoder.Decode(&client)
 	if err == nil {
+		client.Registered = time.Now()
+		client.LastModified = client.Registered
 		err := app.DB.C("clients").Insert(&client)
 		if err == nil {
 			w.Header().Set("Content-Type", "application/vnd.api+json")
 			json.NewEncoder(w).Encode(client)
 		}
+	}
+
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func updateClient(w http.ResponseWriter, r *http.Request, e *Employee) {
+	vars := mux.Vars(r)
+	clientId := bson.ObjectIdHex(vars["id"])
+	var client Client
+
+	err := app.DB.C("clients").FindId(clientId).One(&client)
+	if err == nil {
+		decoder := json.NewDecoder(r.Body)
+		err := decoder.Decode(&client)
+
+		log.Println(client)
+
+		if err == nil {
+			client.LastModified = time.Now()
+			err := app.DB.C("clients").UpdateId(client.Id, client)
+			if err == nil {
+				w.Header().Set("Content-Type", "application/vnd.api+json")
+				json.NewEncoder(w).Encode(client)
+			}
+		}
+	}
+
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func removeClient(w http.ResponseWriter, r *http.Request, e *Employee) {
+	vars := mux.Vars(r)
+	clientId := bson.ObjectIdHex(vars["id"])
+
+	err := app.DB.C("clients").RemoveId(clientId)
+	if err == nil {
+		w.Header().Set("Content-Type", "application/vnd.api+json")
+		json.NewEncoder(w).Encode(clientId)
 	}
 
 	if err != nil {

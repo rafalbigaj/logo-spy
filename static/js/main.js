@@ -1,11 +1,59 @@
 (function($, global) {
+
+  function App() {
+  }
+
+  App.prototype = {
+    clients: [],
+    lastRecords: [],
+    hourlyGross: 60,
+    employee: global.employee,
+
+    loadClients: function() {
+      var self = this;
+      return $.get("/clients", "json").done(function(clients) {
+        self.clients = mapById(clients);
+      });
+    },
+
+    loadRecords: function() {
+      var self = this;
+      return $.get("/records", "json").done(function(records) {
+        self.lastRecords = mapById(records);
+      });
+    },
+
+    loadData: function() {
+      var self = this;
+      return $.when(this.loadClients(), this.loadRecords()).done(function() {
+        self.resolveRelations();
+      });
+    },
+
+    resolveRelations: function() {
+      var self = this;
+      _.each(this.lastRecords, function(record) {
+        record.client = self.clients[record.clientId];
+        record.employee = self.employee;
+      });
+    }
+  };
+
+  var app = new App();
+  global.app = app;
+
   $('body').on("refresh", function(_, data) {
-    if (global.employee===undefined) {
+    if (!app.employee) {
       $("#login-container").show();
       $("#main-container").hide();
     } else {
       $("#login-container").hide();
       $("#main-container").show();
+      
+      app.loadData().done(function() {
+        $('#records').trigger('refresh'); 
+        $('#clients').trigger('refresh');
+      });
     }
   });
 
@@ -14,8 +62,8 @@
     $this.prop("disabled", true);
     $('.js-signin .alert').fadeOut();
     $.post("/login", $(".js-signin").serialize(), null, 'json')
-      .done(function(data) {
-        global.employee = data;
+      .done(function(employee) {
+        app.employee = employee;
         $('body').trigger('refresh');
       })
       .fail(function() {
@@ -29,7 +77,7 @@
   $(".js-signout").click(function() {
     $.get("/logout")
       .done(function() {
-        delete global.employee;
+        delete app.employee;
       })
       .always(function() {
         $('body').trigger('refresh');
@@ -50,31 +98,195 @@
 
   $("#clients").on('refresh', function() {
     var $panel = $(this);
-    $.get("/clients", "json")
-      .done(function(clients) {
-        var compiled = _.template($panel.find("script").text());
-        var items = _.map(clients, function(client) { return compiled(client) });
-        $panel.find("items").html(items.join("\n"));
-      });
+    app.loadClients().done(function(clients) {
+      var compiled = _.template($panel.find("script").text());
+      var items = _.map(app.clients, function(client) { return compiled(client) });
+      $panel.find(".items").html(items.join("\n"));
+    });
+    return false; // stop propagation
   });
 
-  $(".js-add-client button.btn-primary").click(function() {
-    var json = $('.js-add-client form').serializeJSON();
+  $('.js-add-client').on('show.bs.modal', function (event) {
+    var $link = $(event.relatedTarget);
+    if ($link.length > 0) { // triggered by button not datepicker
+      var $form = $(this).find('form');
+      var client_id = $link.data('id'); // Extract client to be updated
+      var client = new Object();
+      $form.data('client-id', client_id)
+      if (client_id) {
+        client = app.clients[client_id];
+        if (!client) {
+          console.error("Cannot find client with id: " + client_id);
+        }
+      }
+      populateForm($form, client);
+     }
+  });
+
+  $(".js-add-client button.js-save").click(function() {
+    var $form = $('.js-add-client form');
+    var json = $form.serializeJSON();
+    var client_id = $form.data('client-id');
+    var existing = client_id && client_id != '';
+    var type = existing ? 'POST' : 'PUT';
+    var url = '/clients';
+    if (existing) {
+      url += '/' + client_id;
+    } 
     $.ajax({
-      url: '/clients',
-      type: 'PUT',
-      data: json
+      url: url,
+      type: type,
+      data: JSON.stringify(json)
+    }).done(function() {
+        $("#clients").trigger('refresh');
+      }).always(function() {
+        $('.js-add-client').modal('hide');
+      })
+  });
+
+  $(".js-add-client button.js-remove").click(function() {
+    var client_id = $('#clientId').val();
+    $.ajax({
+      url: '/clients/'+client_id,
+      type: 'DELETE'
     }).done(function() {
         $("#clients").trigger('refresh');
       });
   });
 
-  $(function() { $('body').trigger('refresh'); });
+  /** records */
+
+  $("#records").on('refresh', function() {
+    var $panel = $(this);
+    app.loadData().done(function() {
+        var compiled = _.template($panel.find("script").text());
+        var items = _.map(app.lastRecords, function(record) { return compiled(record) });
+        $panel.find(".items").html(items.join("\n"));
+      });
+    return false; // stop propagation
+  });
+
+  $('.js-record-modal').on('show.bs.modal', function (event) {
+    var $link = $(event.relatedTarget);
+    if ($link.length > 0) { // triggered by button not datepicker
+      var $form = $(this).find('form');
+      var record_id = $link.data('id'); // Extract client to be updated
+      var now = new Date();
+      var record = {
+        date: "2015-09-16 - 15:00", // now.getFullYear()+'-'+now.getMonth()+'-'+now.getDay()+' - '+now.getHours()+':00',
+        employeeIncome: app.employee.hourlyNet,
+        price: app.hourlyGross
+      };
+      var $clients_select = $form.find("select#recordClient");
+      fillClientsSelect($clients_select);
+      $form.data('record-id', record_id)
+      if (record_id) {
+        record = app.lastRecords[record_id];
+        if (!record) {
+          console.error("Cannot find record with id: " + record_id);
+        }
+      }
+      populateForm($form, record);
+     }
+  });
+
+  $('.js-record-modal form select#recordClient').change(function() {
+    var client_id = $(this).val();
+    var client = app.clients[client_id];
+    if (client) {
+      var price = client.specialPrice || app.hourlyGross;
+      $('.js-record-modal form input#recordPrice').val(price);
+    } else {
+      console.error("Cannot find client with id: " + client_id)
+    }
+  });
+
+  function fillClientsSelect($select) {
+    $select.empty();
+    _.each(app.clients, function(client) {
+      $select.append("<option value='"+client.id+"'>"+client.name+"</option>");
+    });
+  }
+
+  $(".js-record-modal button.js-save").click(function() {
+    var $form = $('.js-record-modal form');
+    var json = $form.serializeJSON();
+    json['employeeId'] = app.employee.id;
+    var record_id = $form.data('record-id');
+    var existing = (record_id && record_id != '');
+    var type = existing ? 'POST' : 'PUT';
+    var url = '/records';
+    if (existing) {
+      url += '/' + record_id;
+    } 
+    $.ajax({
+      url: url,
+      type: type,
+      data: JSON.stringify(json)
+    }).done(function() {
+        $("#records").trigger('refresh');
+      }).always(function() {
+        $('.js-record-modal').modal('hide');
+      })
+  });
+
+  /** common */
+
+  $(".date-picker").each(function() {
+    var $this = $(this);
+    var only_date = ($this.attr('data-picker') == 'date-only');
+    var start_view = only_date ? 2 : 1;
+    var min_view = only_date ? 2 : 1;
+    var format = only_date ? "yyyy-mm-dd" : "yyyy-mm-dd - hh:ii";
+    $this.datetimepicker({
+        format: format,
+        autoclose: true,
+        todayBtn: true,
+        startView: start_view,
+        minView: min_view,
+        weekStart: 1/*,
+        initialDate: $this.val()*/
+    });
+  });
+
+  $(function() { 
+    $('body').trigger('refresh');
+  });
+
+  function mapById(collection) {
+    return _.reduce(collection, function(map, item) { map[item.id] = item; return map; }, {});
+  }
 
 })(jQuery, window);
 
 function printAge(birthday) {
-  var now = moment();
-  var b = moment(birthday);
-  return now.diff(b, 'years') + " years";
+  try {
+    var now = moment();
+    var b = moment(birthday);
+    return now.diff(b, 'years') + " years";
+  } catch(e) {
+    console.error(e);
+    return '?';
+  }
+}
+
+function populateForm($form, data, opts) {
+  if (!opts || opts.reset !== false) {
+    resetForm($form);    
+  }
+  
+  $form.find('input, select, textarea').each(function() {
+    if (this.name) {
+      var name = this.name.split(':')[0]
+      if (data.hasOwnProperty(name)) {
+        $(this).val(data[name]);
+      }
+    }
+  });  
+}
+
+function resetForm($form)
+{
+    $form.find('input, select, textarea').val('');
+    $form.find('input:radio, input:checkbox').removeAttr('checked').removeAttr('selected');
 }
