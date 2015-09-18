@@ -175,8 +175,11 @@ func main() {
 	rtr := mux.NewRouter()
 	rtr.Handle("/login", SessionHandler(processLogin, app.Store)).Methods("POST")
 	rtr.Handle("/logout", SessionHandler(processLogout, app.Store)).Methods("GET")
+	rtr.Handle("/employees", EmployeeHandler(showEmployees, &app)).Methods("GET")
 	rtr.Handle("/records", EmployeeHandler(showRecords, &app)).Methods("GET")
 	rtr.Handle("/records", EmployeeHandler(createRecord, &app)).Methods("PUT")
+	rtr.Handle("/records/{id}", EmployeeHandler(updateRecord, &app)).Methods("POST")
+	rtr.Handle("/records/{id}", EmployeeHandler(removeRecord, &app)).Methods("DELETE")
 	rtr.Handle("/clients", EmployeeHandler(showClients, &app)).Methods("GET")
 	rtr.Handle("/clients", EmployeeHandler(createClient, &app)).Methods("PUT")
 	rtr.Handle("/clients/{id}", EmployeeHandler(updateClient, &app)).Methods("POST")
@@ -225,12 +228,33 @@ func showIndex(w http.ResponseWriter, r *http.Request, e *Employee) {
 	renderTemplate(w, &data)
 }
 
+// Employees
+
+func showEmployees(w http.ResponseWriter, r *http.Request, e *Employee) {
+	if e != nil {
+		var employees []Employee
+		employeeMap := make(map[string]string)
+		err := app.DB.C("employees").Find(nil).All(&employees)
+		for _, employee := range employees {
+			employeeMap[employee.Id.Hex()] = employee.Name
+		}
+		if err == nil {
+			w.Header().Set("Content-Type", "application/vnd.api+json")
+			json.NewEncoder(w).Encode(employeeMap)
+		} else {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	} else {
+		http.Error(w, "Please log in", http.StatusUnauthorized)
+	}
+}
+
 // Records
 
 func showRecords(w http.ResponseWriter, r *http.Request, e *Employee) {
 	if e != nil {
 		var records []Record
-		err := app.DB.C("records").Find(nil).Sort("date").Limit(100).All(&records)
+		err := app.DB.C("records").Find(nil).Sort("-date").Limit(100).All(&records)
 		if err == nil {
 			w.Header().Set("Content-Type", "application/vnd.api+json")
 			json.NewEncoder(w).Encode(records)
@@ -253,6 +277,44 @@ func createRecord(w http.ResponseWriter, r *http.Request, e *Employee) {
 			w.Header().Set("Content-Type", "application/vnd.api+json")
 			json.NewEncoder(w).Encode(record)
 		}
+	}
+
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func updateRecord(w http.ResponseWriter, r *http.Request, e *Employee) {
+	vars := mux.Vars(r)
+	recordId := bson.ObjectIdHex(vars["id"])
+	var record Record
+
+	err := app.DB.C("records").FindId(recordId).One(&record)
+	if err == nil {
+		decoder := json.NewDecoder(r.Body)
+		err := decoder.Decode(&record)
+		if err == nil {
+			err := app.DB.C("records").UpdateId(record.Id, record)
+			if err == nil {
+				w.Header().Set("Content-Type", "application/vnd.api+json")
+				json.NewEncoder(w).Encode(record)
+			}
+		}
+	}
+
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func removeRecord(w http.ResponseWriter, r *http.Request, e *Employee) {
+	vars := mux.Vars(r)
+	recordId := bson.ObjectIdHex(vars["id"])
+
+	err := app.DB.C("records").RemoveId(recordId)
+	if err == nil {
+		w.Header().Set("Content-Type", "application/vnd.api+json")
+		json.NewEncoder(w).Encode(recordId)
 	}
 
 	if err != nil {
@@ -305,9 +367,6 @@ func updateClient(w http.ResponseWriter, r *http.Request, e *Employee) {
 	if err == nil {
 		decoder := json.NewDecoder(r.Body)
 		err := decoder.Decode(&client)
-
-		log.Println(client)
-
 		if err == nil {
 			client.LastModified = time.Now()
 			err := app.DB.C("clients").UpdateId(client.Id, client)

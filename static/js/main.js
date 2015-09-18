@@ -4,7 +4,9 @@
   }
 
   App.prototype = {
-    clients: [],
+    clients: {},
+    records: {},
+    employees: {},
     lastRecords: [],
     hourlyGross: 60,
     employee: global.employee,
@@ -16,16 +18,24 @@
       });
     },
 
+    loadEmployees: function() {
+      var self = this;
+      return $.get("/employees", "json").done(function(employees) {
+        self.employees = employees;
+      });
+    },
+
     loadRecords: function() {
       var self = this;
       return $.get("/records", "json").done(function(records) {
-        self.lastRecords = mapById(records);
+        self.records = mapById(records);
+        self.lastRecords = records;
       });
     },
 
     loadData: function() {
       var self = this;
-      return $.when(this.loadClients(), this.loadRecords()).done(function() {
+      return $.when(this.loadClients(), this.loadEmployees(), this.loadRecords()).done(function() {
         self.resolveRelations();
       });
     },
@@ -34,7 +44,7 @@
       var self = this;
       _.each(this.lastRecords, function(record) {
         record.client = self.clients[record.clientId];
-        record.employee = self.employee;
+        record.employeeName = self.employees[record.employeeId];
       });
     }
   };
@@ -145,13 +155,16 @@
   });
 
   $(".js-add-client button.js-remove").click(function() {
-    var client_id = $('#clientId').val();
+    var $form = $('.js-add-client form');
+    var client_id = $form.data('client-id');
     $.ajax({
       url: '/clients/'+client_id,
       type: 'DELETE'
     }).done(function() {
-        $("#clients").trigger('refresh');
-      });
+      $("#clients").trigger('refresh');
+    }).always(function() {
+      $('.js-add-client').modal('hide');
+    });
   });
 
   /** records */
@@ -173,7 +186,7 @@
       var record_id = $link.data('id'); // Extract client to be updated
       var now = new Date();
       var record = {
-        date: "2015-09-16 - 15:00", // now.getFullYear()+'-'+now.getMonth()+'-'+now.getDay()+' - '+now.getHours()+':00',
+        date: formatDateTime(now),
         employeeIncome: app.employee.hourlyNet,
         price: app.hourlyGross
       };
@@ -181,7 +194,7 @@
       fillClientsSelect($clients_select);
       $form.data('record-id', record_id)
       if (record_id) {
-        record = app.lastRecords[record_id];
+        record = app.records[record_id];
         if (!record) {
           console.error("Cannot find record with id: " + record_id);
         }
@@ -199,6 +212,19 @@
     } else {
       console.error("Cannot find client with id: " + client_id)
     }
+  });
+
+  $(".js-record-modal button.js-remove").click(function() {
+    var $form = $('.js-record-modal form');
+    var record_id = $form.data('record-id');
+    $.ajax({
+      url: '/records/'+record_id,
+      type: 'DELETE'
+    }).done(function() {
+      $("#records").trigger('refresh');
+    }).always(function() {
+      $('.js-record-modal').modal('hide');
+    });
   });
 
   function fillClientsSelect($select) {
@@ -224,10 +250,10 @@
       type: type,
       data: JSON.stringify(json)
     }).done(function() {
-        $("#records").trigger('refresh');
-      }).always(function() {
-        $('.js-record-modal').modal('hide');
-      })
+      $("#records").trigger('refresh');
+    }).always(function() {
+      $('.js-record-modal').modal('hide');
+    });
   });
 
   /** common */
@@ -244,8 +270,7 @@
         todayBtn: true,
         startView: start_view,
         minView: min_view,
-        weekStart: 1/*,
-        initialDate: $this.val()*/
+        weekStart: 1
     });
   });
 
@@ -255,6 +280,15 @@
 
   function mapById(collection) {
     return _.reduce(collection, function(map, item) { map[item.id] = item; return map; }, {});
+  }
+
+  function formatDateTime(d) {
+    return d.getFullYear() + '-' + padDateNum(d.getMonth()+1) + '-' + padDateNum(d.getDate()) + 
+      ' - ' + padDateNum(d.getHours()) + ':00';
+  }
+
+  function padDateNum(num) {
+    return num < 10 ? '0'+num : num.toString();
   }
 
 })(jQuery, window);
