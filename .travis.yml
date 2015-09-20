@@ -8,3 +8,4 @@ deploy:
   on:
     repo: rafalbigaj/logo-spy
 language: go
+script: go build .
