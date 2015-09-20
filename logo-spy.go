@@ -21,6 +21,7 @@ type App struct {
 	DB            *mgo.Database
 	TemplatesPath string
 	StaticPath    string
+	Bind          string
 }
 
 func (app *App) Init() {
@@ -28,18 +29,22 @@ func (app *App) Init() {
 
 	app.Store = sessions.NewCookieStore([]byte("07FdEM5Obo7BM2Kn4e1m-tZCC3IMfWLan0ealKM31"))
 
-	mongo_host := GetenvDefault("MONGO_HOST", "localhost")
-	log.Printf("Connecting to MongoDB: %s...", mongo_host)
-	app.Mongo, err = mgo.Dial(mongo_host)
+	mongo_url := GetenvDefault("MONGO_URL", "localhost")
+	mongo_db := GetenvDefault("MONGO_DB", "logo-spy")
+	log.Printf("Connecting to MongoDB: %s, db: %s...", mongo_url, mongo_db)
+	app.Mongo, err = mgo.Dial(mongo_url)
 	if err != nil {
 		panic(err)
 	}
 	app.Mongo.SetMode(mgo.Monotonic, true)
-	app.DB = app.Mongo.DB("logo-spy")
+	app.DB = app.Mongo.DB(mongo_db)
 	app.InitDB()
 
 	app.TemplatesPath = GetenvDefault("TEMPLATES_PATH", "templates")
 	app.StaticPath = GetenvDefault("STATIC_PATH", "static")
+
+	port := GetenvDefault("PORT", "3000")
+	app.Bind = GetenvDefault("BIND_ADDR", ":"+port)
 }
 
 func (app *App) Close() {
@@ -194,12 +199,8 @@ func main() {
 
 	http.Handle("/", rtr)
 
-	port := os.Getenv("PORT")
-	if len(port) == 0 {
-		port = "3000"
-	}
-	log.Printf("Listening on port %s...", port)
-	http.ListenAndServe(":"+port, nil)
+	log.Printf("Listening on %s...", app.Bind)
+	http.ListenAndServe(app.Bind, nil)
 }
 
 func processLogin(w http.ResponseWriter, r *http.Request, s *Session) {
