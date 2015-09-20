@@ -1,0 +1,9 @@
+deploy:
+  provider: openshift
+  user: rafal.bigaj@gmail.com
+  password:
+    secure: fAMA23nfhqS93/Fueov4HrdlYM+M+XMH5e67tjwFcsVw91k1Wh/4zUvLAO3+TXebcBwpYiqjKZwTYY5YPW1GmZE0NiuFtIccerwEn1KEZxAU8pIWf6S0v9SS24YoHIpMQgQMZ0Nv1kgvh0dd74Ow3OgxLUYsIaLcyuxfQULm1Uc5Z7X7vE6Pv/7lJeUeIefnn/zhtE1D1sSjYKnKXa2pVCrGKBhxqbDYMdQXUChdpDiI+ZwOmkvVcLlxRcV0dUxjU/O/zSEVdIfX109hFmvL/T/KfKosgO0wvqZ5liG5dNITNfVLPdSITk+GmGkpy3HgL5lw7a2g716hJ/jLJ+QBPK/ijSVtVLcwlBFJvGXkoIrjjz/wZMNuDwRbIIo/r0C4OMMPfse5Gavlgl/E6nE1E0SYSs5fjZSySAcoqNSnnjLEW7qhQvLgtZ235t5TJ7F4kEsC7n1BwHzAqi50KMftX2bk7YQGi2N0vQSLet3/mQt2GMj8NcO4Xp6rcVcXQ3RcFWW6bcdA/wYkeEEanceuPv5T5c8gMl0JMefUQnIVtrhMGWMgMTMqAuwZ+cJhkM+qnazCSlDc24oLOgbMeCgQdudYE1CmNsfVgIfZ6Ws5KjfH4H6fdQBKnkoVtxvF69KDfGqD5lqFDhybJTctb0tpR8X7PL8xZmCjZJFhoXs8Dx0=
+  app: logo
+  domain: pszczolka
+  on:
+    repo: rafalbigaj/logo-spy
