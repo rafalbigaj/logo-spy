@@ -308,13 +308,23 @@ function populateForm($form, data, opts) {
   if (!opts || opts.reset !== false) {
     resetForm($form);    
   }
+
+  function getData(name) {
+    var key = name.split(/\[|\]/)
+    var value = data[key[0]];
+    for (var i=1; value && i<key.length; i++) {
+      if (key[i]!="") {
+        value = value[key[i]];
+      }
+    }
+    return value;
+  }
   
   $form.find('input, select, textarea').each(function() {
     if (this.name) {
       var name = this.name.split(':')[0]
-      if (data.hasOwnProperty(name)) {
-        $(this).val(data[name]);
-      }
+      var value = getData(name);
+       $(this).val(value);
     }
   });  
 }

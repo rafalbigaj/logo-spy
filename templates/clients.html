@@ -33,6 +33,18 @@
             <input type="text" name="name" class="form-control" id="clientName" placeholder="Name and Surname">
           </div>
           <div class="form-group">
+            <label>Address</label>
+            <input type="text" name="address[street]" class="form-control" placeholder="Street">
+            <div class="row row-margin">
+              <div class="col-xs-4">
+               <input type="text" name="address[post_code]" class="form-control" placeholder="Code">
+              </div>
+              <div class="col-xs-8">
+               <input type="text" name="address[city]" class="form-control" placeholder="City">
+              </div>
+            </div>
+          </div>
+          <div class="form-group">
             <label for="clientEmail">Email address</label>
             <input type="email" name="email" class="form-control" id="clientEmail" placeholder="Email">
           </div>

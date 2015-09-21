@@ -1,7 +1,7 @@
 FROM golang
 
 ENV PORT 8080
-ENV MONGO_HOST mongo
+ENV MONGO_URL mongo
 
 EXPOSE $PORT
 

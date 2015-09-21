@@ -81,9 +81,16 @@ type Employee struct {
 	Admin     bool          `json:"admin"`
 }
 
+type Address struct {
+	Street   string `json:"street"`
+	PostCode string `json:"post_code"`
+	City     string `json:"city"`
+}
+
 type Client struct {
 	Id           bson.ObjectId `json:"id" bson:"_id,omitempty"`
 	Name         string        `json:"name"`
+	Address      Address       `json:"address"`
 	Email        string        `json:"email"`
 	Tel          string        `json:"tel"`
 	Birthday     ShortDate     `json:"birthday"`
