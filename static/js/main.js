@@ -6,23 +6,32 @@
   App.prototype = {
     clients: {},
     records: {},
-    employees: {},
     lastRecords: [],
+    employees: {},
+    employeeNames: {},
     hourlyGross: 60,
     employee: global.employee,
 
     loadClients: function() {
       var self = this;
-      return $.get("/clients", "json").done(function(clients) {
+      return $.get("/clients").done(function(clients) {
         self.clients = mapById(clients);
       });
     },
 
     loadEmployees: function() {
       var self = this;
-      return $.get("/employees", "json").done(function(employees) {
-        self.employees = employees;
-      });
+      if (this.employee && this.employee.admin) {
+        return $.get("/employees").done(function(employees) {
+          self.employees = mapById(employees);
+          self.employeeNames = _.reduce(employees, 
+            function(map, employee) { map[employee.id] = employee.name; return map; }, {});
+        });
+      } else {
+        return $.get("/employees", {"only-names": true}).done(function(employeeNames) {
+          self.employeeNames = employeeNames;
+        });
+      }
     },
 
     loadRecords: function() {
@@ -44,7 +53,7 @@
       var self = this;
       _.each(this.lastRecords, function(record) {
         record.client = self.clients[record.clientId];
-        record.employeeName = self.employees[record.employeeId];
+        record.employeeName = self.employeeNames[record.employeeId];
       });
     }
   };
@@ -53,6 +62,7 @@
   global.app = app;
 
   $('body').on("refresh", function(_, data) {
+    $(document.body).toggleClass('admin', app.employee && app.employee.admin);
     if (!app.employee) {
       $("#login-container").show();
       $("#main-container").hide();
@@ -63,6 +73,7 @@
       app.loadData().done(function() {
         $('#records').trigger('refresh'); 
         $('#clients').trigger('refresh');
+        $('#employees').trigger('refresh');
       });
     }
   });
@@ -87,7 +98,7 @@
   $(".js-signout").click(function() {
     $.get("/logout")
       .done(function() {
-        delete app.employee;
+        app.employee = null;
       })
       .always(function() {
         $('body').trigger('refresh');
@@ -121,8 +132,7 @@
     if ($link.length > 0) { // triggered by button not datepicker
       var $form = $(this).find('form');
       var client_id = $link.data('id'); // Extract client to be updated
-      var client = new Object();
-      $form.data('client-id', client_id)
+      var client = {};
       if (client_id) {
         client = app.clients[client_id];
         if (!client) {
@@ -136,7 +146,7 @@
   $(".js-add-client button.js-save").click(function() {
     var $form = $('.js-add-client form');
     var json = $form.serializeJSON();
-    var client_id = $form.data('client-id');
+    var client_id = $form.data('object-id');
     var existing = client_id && client_id != '';
     var type = existing ? 'POST' : 'PUT';
     var url = '/clients';
@@ -156,7 +166,7 @@
 
   $(".js-add-client button.js-remove").click(function() {
     var $form = $('.js-add-client form');
-    var client_id = $form.data('client-id');
+    var client_id = $form.data('object-id');
     $.ajax({
       url: '/clients/'+client_id,
       type: 'DELETE'
@@ -192,7 +202,6 @@
       };
       var $clients_select = $form.find("select#recordClient");
       fillClientsSelect($clients_select);
-      $form.data('record-id', record_id)
       if (record_id) {
         record = app.records[record_id];
         if (!record) {
@@ -216,7 +225,7 @@
 
   $(".js-record-modal button.js-remove").click(function() {
     var $form = $('.js-record-modal form');
-    var record_id = $form.data('record-id');
+    var record_id = $form.data('object-id');
     $.ajax({
       url: '/records/'+record_id,
       type: 'DELETE'
@@ -238,7 +247,7 @@
     var $form = $('.js-record-modal form');
     var json = $form.serializeJSON();
     json['employeeId'] = app.employee.id;
-    var record_id = $form.data('record-id');
+    var record_id = $form.data('object-id');
     var existing = (record_id && record_id != '');
     var type = existing ? 'POST' : 'PUT';
     var url = '/records';
@@ -256,7 +265,67 @@
     });
   });
 
-  /** common */
+  /** employees */
+
+  $("#employees").on('refresh', function() {
+    var $panel = $(this);
+    app.loadEmployees().done(function() {
+      var compiled = _.template($panel.find("script").text());
+      var items = _.map(app.employees, function(employee) { return compiled(employee) });
+      $panel.find(".items").html(items.join("\n"));
+    });
+    return false; // stop propagation
+  });
+
+  $('.js-employee-modal').on('show.bs.modal', function (event) {
+    var $link = $(event.relatedTarget);
+    if ($link.length > 0) { // triggered by button not datepicker
+      var $form = $(this).find('form');
+      var employee_id = $link.data('id'); // Extract client to be updated
+      var employee = {};
+      if (employee_id) {
+        employee = app.employees[employee_id];
+        if (!employee) {
+          console.error("Cannot find employee with id: " + employee_id);
+        }
+      }
+      populateForm($form, employee);
+     }
+  });
+
+  $(".js-employee-modal button.js-save").click(function() {
+    var $form = $('.js-employee-modal form');
+    var json = $form.serializeJSON();
+    var employee_id = $form.data('object-id');
+    var existing = employee_id && employee_id != '';
+    var type = existing ? 'POST' : 'PUT';
+    var url = '/employees';
+    if (existing) {
+      url += '/' + employee_id;
+    } 
+    $.ajax({
+      url: url,
+      type: type,
+      data: JSON.stringify(json)
+    }).done(function() {
+        $("#employees").trigger('refresh');
+      }).always(function() {
+        $('.js-employee-modal').modal('hide');
+      })
+  });
+
+  $(".js-employee-modal button.js-remove").click(function() {
+    var $form = $('.js-employee-modal form');
+    var employee_id = $form.data('object-id');
+    $.ajax({
+      url: '/employees/'+employee_id,
+      type: 'DELETE'
+    }).done(function() {
+      $("#employees").trigger('refresh');
+    }).always(function() {
+      $('.js-employee-modal').modal('hide');
+    });
+  });  /** common */
 
   $(".date-picker").each(function() {
     var $this = $(this);
@@ -305,6 +374,7 @@ function printAge(birthday) {
 }
 
 function populateForm($form, data, opts) {
+  $form.data('object-id', data.id || null);
   if (!opts || opts.reset !== false) {
     resetForm($form);    
   }
@@ -324,13 +394,17 @@ function populateForm($form, data, opts) {
     if (this.name) {
       var name = this.name.split(':')[0]
       var value = getData(name);
-       $(this).val(value);
+      if (this.type == "checkbox") {
+        $(this).prop('checked', value);     
+      } else {
+        $(this).val(value);
+      }
     }
   });  
 }
 
 function resetForm($form)
 {
-    $form.find('input, select, textarea').val('');
-    $form.find('input:radio, input:checkbox').removeAttr('checked').removeAttr('selected');
+  $form.find('input, select, textarea').filter(":not(:checkbox, :radio)").val('');
+  $form.find('input:radio, input:checkbox').removeAttr('checked').removeAttr('selected');
 }

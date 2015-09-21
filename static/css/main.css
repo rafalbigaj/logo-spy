@@ -1,3 +1,11 @@
+.only-admin {
+  display: none !important;
+}
+
+body.admin .only-admin {
+  display: block !important;
+}
+
 .row-margin {
   margin-top: 4px;
 }

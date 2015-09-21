@@ -14,7 +14,7 @@
   <script type="text/template">
     <a href="#" class="list-group-item" data-id="<%= id %>" data-toggle="modal" data-target=".js-record-modal">
       <h4 class="list-group-item-heading"><%= client.name %><span class="label label-default pull-right"><%= price %>zł</span></h4>
-      <p class="list-group-item-text"><%= date %> <span class="pull-right"><%= employeeName %></span></p>
+      <p class="list-group-item-text"><%= date %> <span class="pull-right only-admin"><%= employeeName %></span></p>
     </a>
   </script>
 </div>

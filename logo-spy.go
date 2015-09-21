@@ -188,6 +188,9 @@ func main() {
 	rtr.Handle("/login", SessionHandler(processLogin, app.Store)).Methods("POST")
 	rtr.Handle("/logout", SessionHandler(processLogout, app.Store)).Methods("GET")
 	rtr.Handle("/employees", EmployeeHandler(showEmployees, &app)).Methods("GET")
+	rtr.Handle("/employees", EmployeeHandler(createEmployee, &app)).Methods("PUT")
+	rtr.Handle("/employees/{id}", EmployeeHandler(updateEmployee, &app)).Methods("POST")
+	rtr.Handle("/employees/{id}", EmployeeHandler(removeEmployee, &app)).Methods("DELETE")
 	rtr.Handle("/records", EmployeeHandler(showRecords, &app)).Methods("GET")
 	rtr.Handle("/records", EmployeeHandler(createRecord, &app)).Methods("PUT")
 	rtr.Handle("/records/{id}", EmployeeHandler(updateRecord, &app)).Methods("POST")
@@ -239,21 +242,85 @@ func showIndex(w http.ResponseWriter, r *http.Request, e *Employee) {
 // Employees
 
 func showEmployees(w http.ResponseWriter, r *http.Request, e *Employee) {
-	if e != nil {
+	onlyNames := r.FormValue("only-names") == "true"
+	if e != nil && (e.Admin || onlyNames) {
 		var employees []Employee
-		employeeMap := make(map[string]string)
-		err := app.DB.C("employees").Find(nil).All(&employees)
-		for _, employee := range employees {
-			employeeMap[employee.Id.Hex()] = employee.Name
-		}
+		err := app.DB.C("employees").Find(nil).Sort("name").All(&employees)
 		if err == nil {
 			w.Header().Set("Content-Type", "application/vnd.api+json")
-			json.NewEncoder(w).Encode(employeeMap)
+			if onlyNames {
+				employeeMap := make(map[string]string)
+				for _, employee := range employees {
+					employeeMap[employee.Id.Hex()] = employee.Name
+				}
+				json.NewEncoder(w).Encode(employeeMap)
+			} else {
+				json.NewEncoder(w).Encode(employees)
+			}
 		} else {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 	} else {
-		http.Error(w, "Please log in", http.StatusUnauthorized)
+		if e == nil {
+			http.Error(w, "Please log in", http.StatusUnauthorized)
+		} else {
+			http.Error(w, "Access denied", http.StatusUnauthorized)
+		}
+	}
+}
+
+func createEmployee(w http.ResponseWriter, r *http.Request, e *Employee) {
+	decoder := json.NewDecoder(r.Body)
+	var employee Employee
+	err := decoder.Decode(&employee)
+	if err == nil {
+		err := app.DB.C("employees").Insert(&employee)
+		if err == nil {
+			w.Header().Set("Content-Type", "application/vnd.api+json")
+			json.NewEncoder(w).Encode(employee)
+		}
+	}
+
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func updateEmployee(w http.ResponseWriter, r *http.Request, e *Employee) {
+	vars := mux.Vars(r)
+	employeeId := bson.ObjectIdHex(vars["id"])
+	var employee Employee
+
+	err := app.DB.C("employees").FindId(employeeId).One(&employee)
+	if err == nil {
+		decoder := json.NewDecoder(r.Body)
+		err := decoder.Decode(&employee)
+		if err == nil {
+			err := app.DB.C("employees").UpdateId(employee.Id, employee)
+			if err == nil {
+				w.Header().Set("Content-Type", "application/vnd.api+json")
+				json.NewEncoder(w).Encode(employee)
+			}
+		}
+	}
+
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func removeEmployee(w http.ResponseWriter, r *http.Request, e *Employee) {
+	vars := mux.Vars(r)
+	employeeId := bson.ObjectIdHex(vars["id"])
+
+	err := app.DB.C("employees").RemoveId(employeeId)
+	if err == nil {
+		w.Header().Set("Content-Type", "application/vnd.api+json")
+		json.NewEncoder(w).Encode(employeeId)
+	}
+
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
 
@@ -262,7 +329,11 @@ func showEmployees(w http.ResponseWriter, r *http.Request, e *Employee) {
 func showRecords(w http.ResponseWriter, r *http.Request, e *Employee) {
 	if e != nil {
 		var records []Record
-		err := app.DB.C("records").Find(nil).Sort("-date").Limit(100).All(&records)
+		query := bson.M{}
+		if !e.Admin {
+			query["employeeid"] = e.Id
+		}
+		err := app.DB.C("records").Find(query).Sort("-date").Limit(100).All(&records)
 		if err == nil {
 			w.Header().Set("Content-Type", "application/vnd.api+json")
 			json.NewEncoder(w).Encode(records)
@@ -278,7 +349,6 @@ func createRecord(w http.ResponseWriter, r *http.Request, e *Employee) {
 	decoder := json.NewDecoder(r.Body)
 	var record Record
 	err := decoder.Decode(&record)
-	log.Println(record)
 	if err == nil {
 		err := app.DB.C("records").Insert(&record)
 		if err == nil {
@@ -409,6 +479,7 @@ func renderTemplate(w http.ResponseWriter, data *ViewData) {
 	tmpl := template.Must(template.ParseGlob(app.TemplatesPath + "/*.html"))
 	err := tmpl.ExecuteTemplate(w, "layout", data)
 	if err != nil {
+		log.Println(err.Error())
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }

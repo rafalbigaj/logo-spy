@@ -19,6 +19,9 @@
           <li>
             <a href="#" class="js-collection" data-target="#clients"><span class="glyphicon glyphicon-user" aria-hidden="true"></span> Clients</a>
           </li>
+          <li class="only-admin">
+            <a href="#" class="js-collection" data-target="#employees"><span class="glyphicon glyphicon-education" aria-hidden="true"></span> Employees</a>
+          </li>
         </ul>
         <ul class="nav navbar-nav navbar-right">
           <li><a href="#" class="js-signout"><span class="glyphicon glyphicon-log-out" aria-hidden="true"></span> Sing out</a></li>
@@ -29,6 +32,7 @@
 
   {{template "records" }}
   {{template "clients" }}
+  {{template "employees" }}
 </div>
 
 <script type="text/javascript">
