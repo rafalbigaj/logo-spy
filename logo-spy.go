@@ -94,6 +94,7 @@ type Client struct {
 	Email        string        `json:"email"`
 	Tel          string        `json:"tel"`
 	Birthday     ShortDate     `json:"birthday"`
+	TherapyFrom  ShortDate     `json:"therapyFrom"`
 	SpecialPrice int           `json:"specialPrice"`
 	Registered   time.Time     `json:"registered"`
 	LastModified time.Time     `json:"lastModified"`
