@@ -92,7 +92,8 @@
       })
       .always(function() {
         $this.prop("disabled", false);
-      })
+      });
+    return false;
   });
 
   $(".js-signout").click(function() {
