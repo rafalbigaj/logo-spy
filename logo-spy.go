@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/csv"
 	"encoding/json"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/sessions"
@@ -193,6 +195,7 @@ func main() {
 	rtr.Handle("/employees/{id}", EmployeeHandler(updateEmployee, &app)).Methods("POST")
 	rtr.Handle("/employees/{id}", EmployeeHandler(removeEmployee, &app)).Methods("DELETE")
 	rtr.Handle("/records", EmployeeHandler(showRecords, &app)).Methods("GET")
+	rtr.Handle("/records.csv", EmployeeHandler(exportRecords, &app)).Methods("GET")
 	rtr.Handle("/records", EmployeeHandler(createRecord, &app)).Methods("PUT")
 	rtr.Handle("/records/{id}", EmployeeHandler(updateRecord, &app)).Methods("POST")
 	rtr.Handle("/records/{id}", EmployeeHandler(removeRecord, &app)).Methods("DELETE")
@@ -343,6 +346,58 @@ func showRecords(w http.ResponseWriter, r *http.Request, e *Employee) {
 		}
 	} else {
 		http.Error(w, "Please log in", http.StatusUnauthorized)
+	}
+}
+
+func exportRecords(w http.ResponseWriter, r *http.Request, e *Employee) {
+  if e != nil && e.Admin {
+    var records []Record
+    var clients []Client
+    var employees []Employee
+    clientMap := make(map[bson.ObjectId]Client) 
+    employeeMap := make(map[bson.ObjectId]Employee) 
+		query := bson.M{}
+		err := app.DB.C("records").Find(query).Sort("-date").Limit(100).All(&records)
+    if err == nil {
+      err = app.DB.C("clients").Find(query).All(&clients)
+      if err == nil {
+        for _, client := range clients {
+          clientMap[client.Id] = client
+        }
+      }
+    }
+    if err == nil {
+      err = app.DB.C("employees").Find(query).All(&employees)
+      if err == nil {
+        for _, employee := range employees {
+          employeeMap[employee.Id] = employee
+        }
+      }
+    }
+		if err == nil {
+      b := &bytes.Buffer{}
+      wr := csv.NewWriter(b)
+			for _, record := range records {
+        row := make([]string, 5)
+        client := clientMap[record.ClientId]
+        employee := employeeMap[record.EmployeeId]
+        row[0] = time.Time(record.Date).Format(`2006-01-02`)
+        row[1] = strconv.Itoa(record.Price)
+        row[2] = strconv.Itoa(record.EmployeeIncome)
+        row[3] = client.Name
+        row[4] = employee.Name
+        wr.Write(row)
+      }
+      wr.Flush()
+
+      w.Header().Set("Content-Type", "text/csv")
+      w.Write(b.Bytes())
+			
+		} else {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+  } else {
+		http.Error(w, "Administrator zone", http.StatusUnauthorized)
 	}
 }
 
