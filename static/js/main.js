@@ -24,7 +24,7 @@
       if (this.employee && this.employee.admin) {
         return $.get("/employees").done(function(employees) {
           self.employees = mapById(employees);
-          self.employeeNames = _.reduce(employees, 
+          self.employeeNames = _.reduce(employees,
             function(map, employee) { map[employee.id] = employee.name; return map; }, {});
         });
       } else {
@@ -69,9 +69,9 @@
     } else {
       $("#login-container").hide();
       $("#main-container").show();
-      
+
       app.loadData().done(function() {
-        $('#records').trigger('refresh'); 
+        $('#records').trigger('refresh');
         $('#clients').trigger('refresh');
         $('#employees').trigger('refresh');
       });
@@ -153,7 +153,7 @@
     var url = '/clients';
     if (existing) {
       url += '/' + client_id;
-    } 
+    }
     $.ajax({
       url: url,
       type: type,
@@ -184,7 +184,12 @@
     var $panel = $(this);
     app.loadData().done(function() {
         var compiled = _.template($panel.find("script").text());
-        var items = _.map(app.lastRecords, function(record) { return compiled(record) });
+        var items = _.map(app.lastRecords, function(record) {
+          if (record.client===undefined) {
+            record.client = {id: record.clientId};
+          }
+          return compiled(record);
+        });
         $panel.find(".items").html(items.join("\n"));
       });
     return false; // stop propagation
@@ -254,7 +259,7 @@
     var url = '/records';
     if (existing) {
       url += '/' + record_id;
-    } 
+    }
     $.ajax({
       url: url,
       type: type,
@@ -303,7 +308,7 @@
     var url = '/employees';
     if (existing) {
       url += '/' + employee_id;
-    } 
+    }
     $.ajax({
       url: url,
       type: type,
@@ -344,7 +349,7 @@
     });
   });
 
-  $(function() { 
+  $(function() {
     $('body').trigger('refresh');
   });
 
@@ -353,7 +358,7 @@
   }
 
   function formatDateTime(d) {
-    return d.getFullYear() + '-' + padDateNum(d.getMonth()+1) + '-' + padDateNum(d.getDate()) + 
+    return d.getFullYear() + '-' + padDateNum(d.getMonth()+1) + '-' + padDateNum(d.getDate()) +
       ' - ' + padDateNum(d.getHours()) + ':00';
   }
 
@@ -377,7 +382,7 @@ function printAge(birthday) {
 function populateForm($form, data, opts) {
   $form.data('object-id', data.id || null);
   if (!opts || opts.reset !== false) {
-    resetForm($form);    
+    resetForm($form);
   }
 
   function getData(name) {
@@ -390,18 +395,18 @@ function populateForm($form, data, opts) {
     }
     return value;
   }
-  
+
   $form.find('input, select, textarea').each(function() {
     if (this.name) {
       var name = this.name.split(':')[0]
       var value = getData(name);
       if (this.type == "checkbox") {
-        $(this).prop('checked', value);     
+        $(this).prop('checked', value);
       } else {
         $(this).val(value);
       }
     }
-  });  
+  });
 }
 
 function resetForm($form)
