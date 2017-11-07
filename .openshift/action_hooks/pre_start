@@ -1,7 +1,0 @@
-#!/bin/bash
-
-# [mongodb://][user:pass@]host1[:port1][,host2[:port2],...][/database][?options]
-
-echo $OPENSHIFT_MONGODB_DB_URL > ~/.env/user_vars/MONGO_URL
-echo $OPENSHIFT_APP_NAME > ~/.env/user_vars/MONGO_DB
-echo $OPENSHIFT_GO_IP:$OPENSHIFT_GO_PORT > ~/.env/user_vars/BIND_ADDR
