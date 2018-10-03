@@ -1,11 +1,12 @@
 deploy:
-  provider: openshift
-  user: rafal.bigaj@gmail.com
-  password:
-    secure: nwL8fIBJMK47ZcTYPxONwzl/yViQ5GFL/DNYgSVzJgQpF8KcHXIdbI8zE0yR6bjdktKlnsmmNGOY6rqC/7+MLAaq32t0PDsdOh+801NSGgg28+D16obeht50l+NC0i5rzeEYS3ZDuihnksJmkooD1UEkjp9y2RR1vbE3anF7JJkkQllJbky4Ewfr1jJLNKPvXijVsj75OWIIKv7olxmMAb6TJBifZtl04PXGpICaSe+eGhbSvEJnBtFD0IpKD+nUZyO0Zhf4Ns4AMdymIyxp1RYYeU7oDfsnebTkwLF+TqPnUNjYmV0WVIppCQelV6BGMxv4o7nM4JgDkNjfp000Eir/MULq0w8ujZhoVixJIv5yJq5KcIchX7zYOrvDPT/qWmgwCsuB6a1+r4IxrTGpCIQsggqERNONNhYfwhq65g+filjmtdnTKBoBcTLVfcLFwrETRDJD63V2GbrZG33w6ejzFPYoVMo9OS1TleKg6k5v3NzZ20VF2g55WIhq3VOFHhan5S122a5V+RBAszAmfjgkhsjylVNq702wa9hwfH7UWI8fhTenlyYkvAZzWtH2mkpn8JPYRBs4i/+Zp/+MBxMWeGWqhHe6MjO3CN2v0aeC57/ePLgY7sChh19mgOXQxftsETYh+K1NkZ/4e8nG+ljoJeTFz7VCGJviy0CjrvM=
-  app: logo
-  domain: pszczolka
+  provider: bluemixcloudfoundry
+  skip_cleanup: true
+  manifest: manifest.yml
+  username: $BLUEMIX_USER
+  password: $BLUEMIX_PASSWORD
+  organization: $BLUEMIX_ORGANIZATION
+  space: $BLUEMIX_SPACE
   on:
-    repo: rafalbigaj/logo-spy
+    branch: master
 language: go
 script: go build .

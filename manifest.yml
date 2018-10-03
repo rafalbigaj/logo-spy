@@ -1,5 +1,6 @@
 applications:
   - name: logo-panel
+    hostname: logo-panel-2
     command: logo-spy
     memory: 128M
     buildpack: https://github.com/cloudfoundry/go-buildpack.git

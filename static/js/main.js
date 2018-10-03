@@ -9,7 +9,7 @@
     lastRecords: [],
     employees: {},
     employeeNames: {},
-    hourlyGross: 60,
+    hourlyGross: 70,
     employee: global.employee,
 
     loadClients: function() {
