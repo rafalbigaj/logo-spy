@@ -10,11 +10,12 @@
   version = "v1.1.1"
 
 [[projects]]
-  digest = "1:4d7b35ab9324772fa284680883796b7f20341c5f15eeefdbfd0fb21adfe8a221"
+  digest = "1:e73f5b0152105f18bc131fba127d9949305c8693f8a762588a82a48f61756f5f"
   name = "github.com/gorilla/mux"
   packages = ["."]
   pruneopts = "UT"
-  revision = "3f19343c7d9ce75569b952758bd236af94956061"
+  revision = "e3702bed27f0d39777b0b37b664b6280e8ef8fbf"
+  version = "v1.6.2"
 
 [[projects]]
   digest = "1:e72d1ebb8d395cf9f346fd9cbc652e5ae222dd85e0ac842dc57f175abed6d195"
@@ -25,14 +26,24 @@
   version = "v1.1.1"
 
 [[projects]]
-  digest = "1:4dcea9c458e0acfb049b664f9ec8530ad85946f5d5c18adf874426f37ae2664e"
+  digest = "1:e5bf52fd66a2e984b57b4c0f2c4ee024ed749a19886246240629998dc0cf31ce"
   name = "github.com/gorilla/sessions"
   packages = ["."]
   pruneopts = "UT"
-  revision = "b61c93cb7f67533c8bfbb5ea450efc07e5833c5e"
+  revision = "f57b7e2d29c6211d16ffa52a0998272f75799030"
+  version = "v1.1.3"
 
 [[projects]]
-  digest = "1:5052389c6c809eeced44ec24ff9958bfea70b9859b7a25061c6fd9086c8f8989"
+  digest = "1:e60f2f1cd2e8dfdea48c2440c303d103266e754ab1d8b75796a4e4caddb7a68c"
+  name = "github.com/tealeg/xlsx"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "8be35264fa75a1bbe954ce51eba04f273e2c59e5"
+  version = "v1.0.3"
+
+[[projects]]
+  branch = "v2"
+  digest = "1:988de7520a09024d5d94cd99bd545afbf194893994ec759b1cda0a0bbb6adb80"
   name = "gopkg.in/mgo.v2"
   packages = [
     ".",
@@ -42,7 +53,7 @@
     "internal/scram",
   ]
   pruneopts = "UT"
-  revision = "3f83fa5005286a7fe593b055f0d7771a7dce4655"
+  revision = "9856a29383ce1c59f308dd1cf0363a79b5bef6b5"
 
 [solve-meta]
   analyzer-name = "dep"
@@ -50,6 +61,7 @@
   input-imports = [
     "github.com/gorilla/mux",
     "github.com/gorilla/sessions",
+    "github.com/tealeg/xlsx",
     "gopkg.in/mgo.v2",
     "gopkg.in/mgo.v2/bson",
   ]

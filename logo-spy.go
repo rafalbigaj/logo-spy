@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/sessions"
+	"github.com/tealeg/xlsx"
 	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
 	"html/template"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -196,6 +198,7 @@ func main() {
 	rtr.Handle("/employees/{id}", EmployeeHandler(removeEmployee, &app)).Methods("DELETE")
 	rtr.Handle("/records", EmployeeHandler(showRecords, &app)).Methods("GET")
 	rtr.Handle("/records.csv", EmployeeHandler(exportRecords, &app)).Methods("GET")
+	rtr.Handle("/records/{date}.xlsx", EmployeeHandler(exportExcel, &app)).Methods("GET")
 	rtr.Handle("/records", EmployeeHandler(createRecord, &app)).Methods("PUT")
 	rtr.Handle("/records/{id}", EmployeeHandler(updateRecord, &app)).Methods("POST")
 	rtr.Handle("/records/{id}", EmployeeHandler(removeRecord, &app)).Methods("DELETE")
@@ -354,8 +357,8 @@ func exportRecords(w http.ResponseWriter, r *http.Request, e *Employee) {
     var records []Record
     var clients []Client
     var employees []Employee
-    clientMap := make(map[bson.ObjectId]Client) 
-    employeeMap := make(map[bson.ObjectId]Employee) 
+    clientMap := make(map[bson.ObjectId]Client)
+    employeeMap := make(map[bson.ObjectId]Employee)
 		query := bson.M{}
 		err := app.DB.C("records").Find(query).Sort("-date").Limit(100).All(&records)
     if err == nil {
@@ -392,7 +395,106 @@ func exportRecords(w http.ResponseWriter, r *http.Request, e *Employee) {
 
       w.Header().Set("Content-Type", "text/csv")
       w.Write(b.Bytes())
-			
+
+		} else {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+  } else {
+		http.Error(w, "Administrator zone", http.StatusUnauthorized)
+	}
+}
+
+func exportExcel(w http.ResponseWriter, r *http.Request, e *Employee) {
+  if e != nil && e.Admin {
+		vars := mux.Vars(r)
+
+		date, err := time.Parse("2006-01", vars["date"])
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		fromDate := time.Date(date.Year(), date.Month(), 1, 0, 0, 0, 0, time.UTC)
+		toDate := fromDate.AddDate(0, 1, 0)
+
+    var records []Record
+    var clients []Client
+    var employees []Employee
+    clientMap := make(map[bson.ObjectId]Client)
+    employeeMap := make(map[bson.ObjectId]Employee)
+		query := bson.M{
+			"date": bson.M{
+				"$gte": fromDate,
+				"$lt": toDate,
+			},
+		}
+		blankQuery := bson.M{}
+		err = app.DB.C("records").Find(query).Sort("-date").All(&records)
+    if err == nil {
+      err = app.DB.C("clients").Find(blankQuery).All(&clients)
+      if err == nil {
+        for _, client := range clients {
+          clientMap[client.Id] = client
+        }
+      }
+    }
+    if err == nil {
+      err = app.DB.C("employees").Find(blankQuery).All(&employees)
+      if err == nil {
+        for _, employee := range employees {
+          employeeMap[employee.Id] = employee
+        }
+      }
+    }
+		if err == nil {
+      var buf bytes.Buffer
+			var sheet *xlsx.Sheet
+			writer := io.Writer(&buf)
+			file := xlsx.NewFile()
+			sheet, err = file.AddSheet("Sheet1")
+	    if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+	    }
+
+			header := sheet.AddRow()
+			headerDate := header.AddCell()
+    	headerDate.Value = "Date"
+			headerPrice := header.AddCell()
+			headerPrice.Value = "Price"
+			headerEmployeeIncome := header.AddCell()
+			headerEmployeeIncome.Value = "EmployeeIncome"
+			headerClient := header.AddCell()
+			headerClient.Value = "Client"
+			headerEmployee := header.AddCell()
+			headerEmployee.Value = "Employee"
+
+			sheet.SetColWidth(0, 4, 15.)
+
+			for _, record := range records {
+        row := sheet.AddRow()
+        client := clientMap[record.ClientId]
+        employee := employeeMap[record.EmployeeId]
+				cellDate := row.AddCell()
+        cellDate.SetDate(time.Time(record.Date))
+				cellPrice := row.AddCell()
+        cellPrice.SetInt(record.Price)
+				cellEmployeeIncome := row.AddCell()
+        cellEmployeeIncome.SetInt(record.EmployeeIncome)
+				cellClient := row.AddCell()
+        cellClient.Value = client.Name
+				cellEmployee := row.AddCell()
+        cellEmployee.Value = employee.Name
+      }
+
+			err = file.Write(writer)
+	    if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			 	return
+	    }
+
+			w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+			w.Write(buf.Bytes())
+
 		} else {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
