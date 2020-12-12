@@ -9,7 +9,7 @@
     lastRecords: [],
     employees: {},
     employeeNames: {},
-    hourlyGross: 70,
+    hourlyGross: 90,
     employee: global.employee,
 
     loadClients: function() {
@@ -370,6 +370,9 @@
 
 function printAge(birthday) {
   try {
+    if (birthday=="") {
+      return "";
+    }
     var now = moment();
     var b = moment(birthday);
     return now.diff(b, 'years') + " years";

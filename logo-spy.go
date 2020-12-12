@@ -2,13 +2,12 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/csv"
 	"encoding/json"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/sessions"
 	"github.com/tealeg/xlsx"
-	"gopkg.in/mgo.v2"
-	"gopkg.in/mgo.v2/bson"
 	"html/template"
 	"io"
 	"log"
@@ -17,31 +16,53 @@ import (
 	"runtime"
 	"strconv"
 	"time"
+
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/x/mongo/driver/connstring"
 )
 
 type App struct {
 	Store         *sessions.CookieStore
-	Mongo         *mgo.Session
-	DB            *mgo.Database
+	Mongo         *mongo.Client
+	DB            *mongo.Database
 	TemplatesPath string
 	StaticPath    string
 	Bind          string
+	Location      *time.Location
 }
 
 func (app *App) Init() {
 	var err error
 
+	app.Location, err = time.LoadLocation("Europe/Warsaw")
+	if err != nil {
+		log.Fatal(err)
+	}
 	app.Store = sessions.NewCookieStore([]byte("07FdEM5Obo7BM2Kn4e1m-tZCC3IMfWLan0ealKM31"))
 
-	mongo_url := GetenvDefault("MONGO_URL", "localhost")
-	mongo_db := GetenvDefault("MONGO_DB", "logo-spy")
-	log.Printf("Connecting to MongoDB: %s, db: %s...", mongo_url, mongo_db)
-	app.Mongo, err = mgo.Dial(mongo_url)
+	mongoUri := GetenvDefault("MONGO_URI", "localhost")
+	log.Printf("Connecting to MongoDB: %s...", mongoUri)
+
+	options := options.Client().ApplyURI(mongoUri)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	client, err := mongo.Connect(ctx, options)
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
-	app.Mongo.SetMode(mgo.Monotonic, true)
-	app.DB = app.Mongo.DB(mongo_db)
+
+	cs, err := connstring.Parse(mongoUri)
+	if err != nil {
+		log.Fatal(err)
+	}
+	db := client.Database(cs.Database)
+
+	app.Mongo = client
+	app.DB = db
 	app.InitDB()
 
 	app.TemplatesPath = GetenvDefault("TEMPLATES_PATH", "templates")
@@ -52,18 +73,22 @@ func (app *App) Init() {
 }
 
 func (app *App) Close() {
-	app.Mongo.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	app.Mongo.Disconnect(ctx)
 }
 
 func (app *App) InitDB() {
-	employees := app.DB.C("employees")
-	count, err := employees.Count()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	employees := app.DB.Collection("employees")
+	count, err := employees.CountDocuments(ctx, bson.D{})
 	if err != nil {
 		panic(err)
 	}
 	if count == 0 {
 		admin := Employee{Name: "admin", Code: 1234, Admin: true}
-		employees.Insert(admin)
+		employees.InsertOne(ctx, admin)
 	}
 }
 
@@ -77,12 +102,16 @@ func GetenvDefault(key string, default_value string) string {
 
 var app App
 
+type ShortDate struct {
+	primitive.DateTime
+}
+
 type Employee struct {
-	Id        bson.ObjectId `json:"id" bson:"_id,omitempty"`
-	Name      string        `json:"name"`
-	Code      int           `json:"code"`
-	HourlyNet int           `json:"hourlyNet"`
-	Admin     bool          `json:"admin"`
+	Id        primitive.ObjectID `json:"id" bson:"_id,omitempty"`
+	Name      string             `json:"name"`
+	Code      int                `json:"code"`
+	HourlyNet int                `json:"hourlyNet"`
+	Admin     bool               `json:"admin"`
 }
 
 type Address struct {
@@ -92,96 +121,115 @@ type Address struct {
 }
 
 type Client struct {
-	Id           bson.ObjectId `json:"id" bson:"_id,omitempty"`
-	Name         string        `json:"name"`
-	Address      Address       `json:"address"`
-	Email        string        `json:"email"`
-	Tel          string        `json:"tel"`
-	Birthday     ShortDate     `json:"birthday"`
-	TherapyFrom  ShortDate     `json:"therapyFrom"`
-	SpecialPrice int           `json:"specialPrice"`
-	Registered   time.Time     `json:"registered"`
-	LastModified time.Time     `json:"lastModified"`
+	Id           primitive.ObjectID `json:"id" bson:"_id,omitempty"`
+	Name         string             `json:"name"`
+	Address      Address            `json:"address"`
+	Email        string             `json:"email"`
+	Tel          string             `json:"tel"`
+	Birthday     primitive.DateTime `json:"birthday"`
+	TherapyFrom  primitive.DateTime `json:"therapyFrom"`
+	SpecialPrice int                `json:"specialPrice"`
+	Registered   primitive.DateTime `json:"registered"`
+	LastModified primitive.DateTime `json:"lastModified"`
+}
+
+var ShortDateLayout = "2006-01-02"
+var DateTimeLayout = "2006-01-02 - 15:04"
+
+func MarshalDate(dt primitive.DateTime, layout string) string {
+	if dt == 0 {
+		return ""
+	}
+	return dt.Time().In(app.Location).Format(layout)
+}
+
+func UnmarshalDate(s string, dt *primitive.DateTime, layout string) error {
+	if len(s) == 0 {
+		*dt = primitive.DateTime(0)
+		return nil
+	}
+	t, err := time.ParseInLocation(layout, s, app.Location)
+	if err != nil {
+		return err
+	}
+	*dt = primitive.NewDateTimeFromTime(t)
+	return nil
+}
+
+func (c *Client) MarshalJSON() ([]byte, error) {
+	type Alias Client
+	return json.Marshal(&struct {
+		Birthday    string `json:"birthday"`
+		TherapyFrom string `json:"therapyFrom"`
+		*Alias
+	}{
+		Birthday:    MarshalDate(c.Birthday, ShortDateLayout),
+		TherapyFrom: MarshalDate(c.TherapyFrom, ShortDateLayout),
+		Alias:       (*Alias)(c),
+	})
+}
+
+func (c *Client) UnmarshalJSON(data []byte) error {
+	type Alias Client
+	aux := &struct {
+		Birthday    string `json:"birthday"`
+		TherapyFrom string `json:"therapyFrom"`
+		*Alias
+	}{
+		Alias: (*Alias)(c),
+	}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	if err := UnmarshalDate(aux.Birthday, &c.Birthday, ShortDateLayout); err != nil {
+		return err
+	}
+	if err := UnmarshalDate(aux.TherapyFrom, &c.TherapyFrom, ShortDateLayout); err != nil {
+		return err
+	}
+	return nil
 }
 
 type Record struct {
-	Id             bson.ObjectId `json:"id" bson:"_id,omitempty"`
-	EmployeeId     bson.ObjectId `json:"employeeId"`
-	ClientId       bson.ObjectId `json:"clientId"`
-	Date           DateTime      `json:"date"`
-	Price          int           `json:"price"`
-	EmployeeIncome int           `json:"employeeIncome"`
+	Id             primitive.ObjectID `json:"id" bson:"_id,omitempty"`
+	EmployeeId     primitive.ObjectID `json:"employeeId"`
+	ClientId       primitive.ObjectID `json:"clientId"`
+	Date           primitive.DateTime `json:"date"`
+	Price          int                `json:"price"`
+	EmployeeIncome int                `json:"employeeIncome"`
+}
+
+func (r *Record) MarshalJSON() ([]byte, error) {
+	type Alias Record
+	return json.Marshal(&struct {
+		Date string `json:"date"`
+		*Alias
+	}{
+		Date:  MarshalDate(r.Date, DateTimeLayout),
+		Alias: (*Alias)(r),
+	})
+}
+
+func (r *Record) UnmarshalJSON(data []byte) error {
+	type Alias Record
+	aux := &struct {
+		Date string `json:"date"`
+		*Alias
+	}{
+		Alias: (*Alias)(r),
+	}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	if err := UnmarshalDate(aux.Date, &r.Date, DateTimeLayout); err != nil {
+		return err
+	}
+	return nil
 }
 
 type ViewData struct {
 	Employee *Employee
 }
-
-type ShortDate time.Time
-
-func (d ShortDate) MarshalJSON() ([]byte, error) {
-	return []byte((time.Time(d)).Format(`"2006-01-02"`)), nil
-}
-
-func (d *ShortDate) UnmarshalJSON(data []byte) error {
-	tm, err := time.Parse(`"2006-01-02"`, string(data))
-	*d = ShortDate(tm)
-	return err
-}
-
-func (d ShortDate) GetBSON() (interface{}, error) {
-	return time.Time(d), nil
-}
-
-func (d *ShortDate) SetBSON(raw bson.Raw) error {
-	var tm time.Time
-	if err := raw.Unmarshal(&tm); err != nil {
-		return err
-	}
-	*d = ShortDate(tm)
-	return nil
-}
-
-func (d ShortDate) String() string {
-	return time.Time(d).Format(`2006-01-02`)
-}
-
-var _ json.Marshaler = (*ShortDate)(nil)
-var _ bson.Getter = (*ShortDate)(nil)
-var _ bson.Setter = (*ShortDate)(nil)
-
-type DateTime time.Time
-
-func (d DateTime) MarshalJSON() ([]byte, error) {
-	return []byte((time.Time(d)).Format(`"2006-01-02 - 15:04"`)), nil
-}
-
-func (d *DateTime) UnmarshalJSON(data []byte) error {
-	tm, err := time.Parse(`"2006-01-02 - 15:04"`, string(data))
-	*d = DateTime(tm)
-	return err
-}
-
-func (d DateTime) GetBSON() (interface{}, error) {
-	return time.Time(d), nil
-}
-
-func (d *DateTime) SetBSON(raw bson.Raw) error {
-	var tm time.Time
-	if err := raw.Unmarshal(&tm); err != nil {
-		return err
-	}
-	*d = DateTime(tm)
-	return nil
-}
-
-func (d DateTime) String() string {
-	return time.Time(d).Format(`2006-01-02 - 15:04`)
-}
-
-var _ json.Marshaler = (*DateTime)(nil)
-var _ bson.Getter = (*DateTime)(nil)
-var _ bson.Setter = (*DateTime)(nil)
 
 func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
@@ -221,11 +269,16 @@ func main() {
 }
 
 func processLogin(w http.ResponseWriter, r *http.Request, s *Session) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
 	code, _ := strconv.Atoi(r.FormValue("code"))
 	var employee Employee
-	err := app.DB.C("employees").Find(bson.M{"code": code}).One(&employee)
-	if err == nil {
-		err = s.StoreEmployeeId(employee.Id)
+	res := app.DB.Collection("employees").FindOne(ctx, bson.M{"code": code})
+	if res.Err() == nil {
+		err := res.Decode(&employee)
+		if err == nil {
+			err = s.StoreEmployeeId(employee.Id)
+		}
 		if err == nil {
 			w.Header().Set("Content-Type", "application/vnd.api+json")
 			json.NewEncoder(w).Encode(employee)
@@ -249,20 +302,36 @@ func showIndex(w http.ResponseWriter, r *http.Request, e *Employee) {
 // Employees
 
 func showEmployees(w http.ResponseWriter, r *http.Request, e *Employee) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
 	onlyNames := r.FormValue("only-names") == "true"
 	if e != nil && (e.Admin || onlyNames) {
-		var employees []Employee
-		err := app.DB.C("employees").Find(nil).Sort("name").All(&employees)
+		findOptions := options.Find()
+		findOptions.SetSort(bson.D{{"name", 1}})
+		cur, err := app.DB.Collection("employees").Find(ctx, bson.D{}, findOptions)
 		if err == nil {
 			w.Header().Set("Content-Type", "application/vnd.api+json")
 			if onlyNames {
 				employeeMap := make(map[string]string)
-				for _, employee := range employees {
-					employeeMap[employee.Id.Hex()] = employee.Name
+				for cur.Next(ctx) {
+					var employee Employee
+					if err = cur.Decode(&employee); err == nil {
+						employeeMap[employee.Id.Hex()] = employee.Name
+					}
 				}
 				json.NewEncoder(w).Encode(employeeMap)
 			} else {
-				json.NewEncoder(w).Encode(employees)
+				var employees []Employee
+				for cur.Next(ctx) {
+					var employee Employee
+					if err = cur.Decode(&employee); err == nil {
+						employees = append(employees, employee)
+					}
+				}
+				err = json.NewEncoder(w).Encode(employees)
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+				}
 			}
 		} else {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -277,11 +346,14 @@ func showEmployees(w http.ResponseWriter, r *http.Request, e *Employee) {
 }
 
 func createEmployee(w http.ResponseWriter, r *http.Request, e *Employee) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
 	decoder := json.NewDecoder(r.Body)
 	var employee Employee
 	err := decoder.Decode(&employee)
 	if err == nil {
-		err := app.DB.C("employees").Insert(&employee)
+		_, err := app.DB.Collection("employees").InsertOne(ctx, &employee)
 		if err == nil {
 			w.Header().Set("Content-Type", "application/vnd.api+json")
 			json.NewEncoder(w).Encode(employee)
@@ -294,39 +366,42 @@ func createEmployee(w http.ResponseWriter, r *http.Request, e *Employee) {
 }
 
 func updateEmployee(w http.ResponseWriter, r *http.Request, e *Employee) {
-	vars := mux.Vars(r)
-	employeeId := bson.ObjectIdHex(vars["id"])
-	var employee Employee
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
 
-	err := app.DB.C("employees").FindId(employeeId).One(&employee)
+	var employee Employee
+	vars := mux.Vars(r)
+	employeeId, err := primitive.ObjectIDFromHex(vars["id"])
 	if err == nil {
 		decoder := json.NewDecoder(r.Body)
-		err := decoder.Decode(&employee)
-		if err == nil {
-			err := app.DB.C("employees").UpdateId(employee.Id, employee)
-			if err == nil {
-				w.Header().Set("Content-Type", "application/vnd.api+json")
-				json.NewEncoder(w).Encode(employee)
-			}
-		}
+		err = decoder.Decode(&employee)
+	}
+
+	if err == nil {
+		res := app.DB.Collection("employees").FindOneAndUpdate(ctx, bson.M{"_id": employeeId}, bson.M{"$set": employee})
+		err = res.Err()
 	}
 
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+	} else {
+		w.Header().Set("Content-Type", "application/vnd.api+json")
+		json.NewEncoder(w).Encode(employee)
 	}
 }
 
 func removeEmployee(w http.ResponseWriter, r *http.Request, e *Employee) {
-	vars := mux.Vars(r)
-	employeeId := bson.ObjectIdHex(vars["id"])
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
 
-	err := app.DB.C("employees").RemoveId(employeeId)
+	vars := mux.Vars(r)
+	employeeId, err := primitive.ObjectIDFromHex(vars["id"])
+
+	_, err = app.DB.Collection("employees").DeleteOne(ctx, bson.M{"_id": employeeId})
 	if err == nil {
 		w.Header().Set("Content-Type", "application/vnd.api+json")
 		json.NewEncoder(w).Encode(employeeId)
-	}
-
-	if err != nil {
+	} else {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
@@ -334,14 +409,26 @@ func removeEmployee(w http.ResponseWriter, r *http.Request, e *Employee) {
 // Records
 
 func showRecords(w http.ResponseWriter, r *http.Request, e *Employee) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
 	if e != nil {
 		var records []Record
 		query := bson.M{}
 		if !e.Admin {
 			query["employeeid"] = e.Id
 		}
-		err := app.DB.C("records").Find(query).Sort("-date").Limit(100).All(&records)
+		findOptions := options.Find()
+		findOptions.SetSort(bson.D{{"date", -1}})
+		findOptions.SetLimit(200)
+		cur, err := app.DB.Collection("records").Find(ctx, query, findOptions)
 		if err == nil {
+			for cur.Next(ctx) {
+				var record Record
+				if err = cur.Decode(&record); err == nil {
+					records = append(records, record)
+				}
+			}
 			w.Header().Set("Content-Type", "application/vnd.api+json")
 			json.NewEncoder(w).Encode(records)
 		} else {
@@ -353,59 +440,84 @@ func showRecords(w http.ResponseWriter, r *http.Request, e *Employee) {
 }
 
 func exportRecords(w http.ResponseWriter, r *http.Request, e *Employee) {
-  if e != nil && e.Admin {
-    var records []Record
-    var clients []Client
-    var employees []Employee
-    clientMap := make(map[bson.ObjectId]Client)
-    employeeMap := make(map[bson.ObjectId]Employee)
-		query := bson.M{}
-		err := app.DB.C("records").Find(query).Sort("-date").Limit(100).All(&records)
-    if err == nil {
-      err = app.DB.C("clients").Find(query).All(&clients)
-      if err == nil {
-        for _, client := range clients {
-          clientMap[client.Id] = client
-        }
-      }
-    }
-    if err == nil {
-      err = app.DB.C("employees").Find(query).All(&employees)
-      if err == nil {
-        for _, employee := range employees {
-          employeeMap[employee.Id] = employee
-        }
-      }
-    }
-		if err == nil {
-      b := &bytes.Buffer{}
-      wr := csv.NewWriter(b)
-			for _, record := range records {
-        row := make([]string, 5)
-        client := clientMap[record.ClientId]
-        employee := employeeMap[record.EmployeeId]
-        row[0] = time.Time(record.Date).Format(`2006-01-02`)
-        row[1] = strconv.Itoa(record.Price)
-        row[2] = strconv.Itoa(record.EmployeeIncome)
-        row[3] = client.Name
-        row[4] = employee.Name
-        wr.Write(row)
-      }
-      wr.Flush()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
 
-      w.Header().Set("Content-Type", "text/csv")
-      w.Write(b.Bytes())
+	if e != nil && e.Admin {
+		var records []Record
+		clientMap := make(map[primitive.ObjectID]Client)
+		employeeMap := make(map[primitive.ObjectID]Employee)
+		query := bson.D{}
+		findOptions := options.Find()
+		findOptions.SetSort(bson.D{{"date", -1}})
+		findOptions.SetLimit(200)
+		cur, err := app.DB.Collection("records").Find(ctx, query, findOptions)
+		if err == nil {
+			for cur.Next(ctx) {
+				var record Record
+				err = cur.Decode(&record)
+				if err == nil {
+					records = append(records, record)
+				}
+			}
+		}
+
+		if err == nil {
+			cur, err = app.DB.Collection("clients").Find(ctx, query)
+			if err == nil {
+				for cur.Next(ctx) {
+					var client Client
+					err = cur.Decode(&client)
+					if err == nil {
+						clientMap[client.Id] = client
+					}
+				}
+			}
+		}
+		if err == nil {
+			cur, err = app.DB.Collection("employees").Find(ctx, query)
+			if err == nil {
+				for cur.Next(ctx) {
+					var employee Employee
+					err = cur.Decode(&employee)
+					if err == nil {
+						employeeMap[employee.Id] = employee
+					}
+				}
+			}
+		}
+		if err == nil {
+			b := &bytes.Buffer{}
+			wr := csv.NewWriter(b)
+			for _, record := range records {
+				row := make([]string, 5)
+				client := clientMap[record.ClientId]
+				employee := employeeMap[record.EmployeeId]
+				row[0] = record.Date.Time().Format(`2006-01-02`)
+				row[1] = strconv.Itoa(record.Price)
+				row[2] = strconv.Itoa(record.EmployeeIncome)
+				row[3] = client.Name
+				row[4] = employee.Name
+				wr.Write(row)
+			}
+			wr.Flush()
+
+			w.Header().Set("Content-Type", "text/csv")
+			w.Write(b.Bytes())
 
 		} else {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
-  } else {
+	} else {
 		http.Error(w, "Administrator zone", http.StatusUnauthorized)
 	}
 }
 
 func exportExcel(w http.ResponseWriter, r *http.Request, e *Employee) {
-  if e != nil && e.Admin {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	if e != nil && e.Admin {
 		vars := mux.Vars(r)
 
 		date, err := time.Parse("2006-01", vars["date"])
@@ -416,49 +528,68 @@ func exportExcel(w http.ResponseWriter, r *http.Request, e *Employee) {
 		fromDate := time.Date(date.Year(), date.Month(), 1, 0, 0, 0, 0, time.UTC)
 		toDate := fromDate.AddDate(0, 1, 0)
 
-    var records []Record
-    var clients []Client
-    var employees []Employee
-    clientMap := make(map[bson.ObjectId]Client)
-    employeeMap := make(map[bson.ObjectId]Employee)
+		var records []Record
+		clientMap := make(map[primitive.ObjectID]Client)
+		employeeMap := make(map[primitive.ObjectID]Employee)
+
+		findOptions := options.Find()
+		findOptions.SetSort(bson.D{{"date", -1}})
 		query := bson.M{
 			"date": bson.M{
 				"$gte": fromDate,
-				"$lt": toDate,
+				"$lt":  toDate,
 			},
 		}
 		blankQuery := bson.M{}
-		err = app.DB.C("records").Find(query).Sort("-date").All(&records)
-    if err == nil {
-      err = app.DB.C("clients").Find(blankQuery).All(&clients)
-      if err == nil {
-        for _, client := range clients {
-          clientMap[client.Id] = client
-        }
-      }
-    }
-    if err == nil {
-      err = app.DB.C("employees").Find(blankQuery).All(&employees)
-      if err == nil {
-        for _, employee := range employees {
-          employeeMap[employee.Id] = employee
-        }
-      }
-    }
+		cur, err := app.DB.Collection("records").Find(ctx, query, findOptions)
 		if err == nil {
-      var buf bytes.Buffer
+			for cur.Next(ctx) {
+				var record Record
+				err = cur.Decode(&record)
+				if err == nil {
+					records = append(records, record)
+				}
+			}
+		}
+		if err == nil {
+			cur, err = app.DB.Collection("clients").Find(ctx, blankQuery)
+			if err == nil {
+				for cur.Next(ctx) {
+					var client Client
+					err = cur.Decode(&client)
+					if err == nil {
+						clientMap[client.Id] = client
+					}
+				}
+			}
+		}
+		if err == nil {
+			cur, err = app.DB.Collection("employees").Find(ctx, blankQuery)
+			if err == nil {
+				for cur.Next(ctx) {
+					var employee Employee
+					err = cur.Decode(&employee)
+					if err == nil {
+						employeeMap[employee.Id] = employee
+					}
+				}
+			}
+		}
+
+		if err == nil {
+			var buf bytes.Buffer
 			var sheet *xlsx.Sheet
 			writer := io.Writer(&buf)
 			file := xlsx.NewFile()
 			sheet, err = file.AddSheet("Sheet1")
-	    if err != nil {
+			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
-	    }
+			}
 
 			header := sheet.AddRow()
 			headerDate := header.AddCell()
-    	headerDate.Value = "Date"
+			headerDate.Value = "Date"
 			headerPrice := header.AddCell()
 			headerPrice.Value = "Price"
 			headerEmployeeIncome := header.AddCell()
@@ -471,26 +602,26 @@ func exportExcel(w http.ResponseWriter, r *http.Request, e *Employee) {
 			sheet.SetColWidth(0, 4, 15.)
 
 			for _, record := range records {
-        row := sheet.AddRow()
-        client := clientMap[record.ClientId]
-        employee := employeeMap[record.EmployeeId]
+				row := sheet.AddRow()
+				client := clientMap[record.ClientId]
+				employee := employeeMap[record.EmployeeId]
 				cellDate := row.AddCell()
-        cellDate.SetDate(time.Time(record.Date))
+				cellDate.SetDate(record.Date.Time())
 				cellPrice := row.AddCell()
-        cellPrice.SetInt(record.Price)
+				cellPrice.SetInt(record.Price)
 				cellEmployeeIncome := row.AddCell()
-        cellEmployeeIncome.SetInt(record.EmployeeIncome)
+				cellEmployeeIncome.SetInt(record.EmployeeIncome)
 				cellClient := row.AddCell()
-        cellClient.Value = client.Name
+				cellClient.Value = client.Name
 				cellEmployee := row.AddCell()
-        cellEmployee.Value = employee.Name
-      }
+				cellEmployee.Value = employee.Name
+			}
 
 			err = file.Write(writer)
-	    if err != nil {
+			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
-			 	return
-	    }
+				return
+			}
 
 			w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 			w.Write(buf.Bytes())
@@ -498,17 +629,20 @@ func exportExcel(w http.ResponseWriter, r *http.Request, e *Employee) {
 		} else {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
-  } else {
+	} else {
 		http.Error(w, "Administrator zone", http.StatusUnauthorized)
 	}
 }
 
 func createRecord(w http.ResponseWriter, r *http.Request, e *Employee) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
 	decoder := json.NewDecoder(r.Body)
 	var record Record
 	err := decoder.Decode(&record)
 	if err == nil {
-		err := app.DB.C("records").Insert(&record)
+		_, err := app.DB.Collection("records").InsertOne(ctx, &record)
 		if err == nil {
 			w.Header().Set("Content-Type", "application/vnd.api+json")
 			json.NewEncoder(w).Encode(record)
@@ -521,39 +655,46 @@ func createRecord(w http.ResponseWriter, r *http.Request, e *Employee) {
 }
 
 func updateRecord(w http.ResponseWriter, r *http.Request, e *Employee) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
 	vars := mux.Vars(r)
-	recordId := bson.ObjectIdHex(vars["id"])
+	recordId, err := primitive.ObjectIDFromHex(vars["id"])
 	var record Record
 
-	err := app.DB.C("records").FindId(recordId).One(&record)
 	if err == nil {
 		decoder := json.NewDecoder(r.Body)
-		err := decoder.Decode(&record)
-		if err == nil {
-			err := app.DB.C("records").UpdateId(record.Id, record)
-			if err == nil {
-				w.Header().Set("Content-Type", "application/vnd.api+json")
-				json.NewEncoder(w).Encode(record)
-			}
-		}
+		err = decoder.Decode(&record)
+	}
+
+	if err == nil {
+		res := app.DB.Collection("records").FindOneAndUpdate(ctx, bson.M{"_id": recordId}, bson.M{"$set": record})
+		err = res.Err()
 	}
 
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+	} else {
+		w.Header().Set("Content-Type", "application/vnd.api+json")
+		json.NewEncoder(w).Encode(record)
 	}
 }
 
 func removeRecord(w http.ResponseWriter, r *http.Request, e *Employee) {
-	vars := mux.Vars(r)
-	recordId := bson.ObjectIdHex(vars["id"])
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
 
-	err := app.DB.C("records").RemoveId(recordId)
+	vars := mux.Vars(r)
+	recordId, err := primitive.ObjectIDFromHex(vars["id"])
+
+	if err == nil {
+		_, err = app.DB.Collection("records").DeleteOne(ctx, bson.M{"_id": recordId})
+	}
+
 	if err == nil {
 		w.Header().Set("Content-Type", "application/vnd.api+json")
 		json.NewEncoder(w).Encode(recordId)
-	}
-
-	if err != nil {
+	} else {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
@@ -561,12 +702,27 @@ func removeRecord(w http.ResponseWriter, r *http.Request, e *Employee) {
 // Clients
 
 func showClients(w http.ResponseWriter, r *http.Request, e *Employee) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
 	if e != nil {
 		var clients []Client
-		err := app.DB.C("clients").Find(bson.M{}).Sort("name").All(&clients)
+		findOptions := options.Find()
+		findOptions.SetSort(bson.D{{"name", 1}})
+		cur, err := app.DB.Collection("clients").Find(ctx, bson.M{}, findOptions)
 		if err == nil {
+			for cur.Next(ctx) {
+				var client Client
+				err = cur.Decode(&client)
+				if err == nil {
+					clients = append(clients, client)
+				}
+			}
 			w.Header().Set("Content-Type", "application/vnd.api+json")
-			json.NewEncoder(w).Encode(clients)
+			err = json.NewEncoder(w).Encode(clients)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			}
 		} else {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
@@ -576,13 +732,16 @@ func showClients(w http.ResponseWriter, r *http.Request, e *Employee) {
 }
 
 func createClient(w http.ResponseWriter, r *http.Request, e *Employee) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
 	decoder := json.NewDecoder(r.Body)
 	var client Client
 	err := decoder.Decode(&client)
 	if err == nil {
-		client.Registered = time.Now()
+		client.Registered = primitive.NewDateTimeFromTime(time.Now())
 		client.LastModified = client.Registered
-		err := app.DB.C("clients").Insert(&client)
+		_, err := app.DB.Collection("clients").InsertOne(ctx, &client)
 		if err == nil {
 			w.Header().Set("Content-Type", "application/vnd.api+json")
 			json.NewEncoder(w).Encode(client)
@@ -595,40 +754,46 @@ func createClient(w http.ResponseWriter, r *http.Request, e *Employee) {
 }
 
 func updateClient(w http.ResponseWriter, r *http.Request, e *Employee) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
 	vars := mux.Vars(r)
-	clientId := bson.ObjectIdHex(vars["id"])
+	clientId, err := primitive.ObjectIDFromHex(vars["id"])
 	var client Client
 
-	err := app.DB.C("clients").FindId(clientId).One(&client)
 	if err == nil {
 		decoder := json.NewDecoder(r.Body)
-		err := decoder.Decode(&client)
-		if err == nil {
-			client.LastModified = time.Now()
-			err := app.DB.C("clients").UpdateId(client.Id, client)
-			if err == nil {
-				w.Header().Set("Content-Type", "application/vnd.api+json")
-				json.NewEncoder(w).Encode(client)
-			}
-		}
+		err = decoder.Decode(&client)
+	}
+
+	if err == nil {
+		res := app.DB.Collection("clients").FindOneAndUpdate(ctx, bson.M{"_id": clientId}, bson.M{"$set": client})
+		err = res.Err()
 	}
 
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+	} else {
+		w.Header().Set("Content-Type", "application/vnd.api+json")
+		json.NewEncoder(w).Encode(client)
 	}
 }
 
 func removeClient(w http.ResponseWriter, r *http.Request, e *Employee) {
-	vars := mux.Vars(r)
-	clientId := bson.ObjectIdHex(vars["id"])
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
 
-	err := app.DB.C("clients").RemoveId(clientId)
+	vars := mux.Vars(r)
+	clientId, err := primitive.ObjectIDFromHex(vars["id"])
+
+	if err == nil {
+		_, err = app.DB.Collection("clients").DeleteOne(ctx, bson.M{"_id": clientId})
+	}
+
 	if err == nil {
 		w.Header().Set("Content-Type", "application/vnd.api+json")
 		json.NewEncoder(w).Encode(clientId)
-	}
-
-	if err != nil {
+	} else {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }

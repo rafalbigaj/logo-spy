@@ -1,9 +1,14 @@
 package main
 
 import (
-	"github.com/gorilla/sessions"
-	"gopkg.in/mgo.v2/bson"
+	"context"
+	"log"
 	"net/http"
+	"time"
+
+	"github.com/gorilla/sessions"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 const SessionName = "logo-spy"
@@ -36,15 +41,17 @@ func (s *Session) GetErrors() (error_messages []string) {
 	return
 }
 
-func (s *Session) StoreEmployeeId(id bson.ObjectId) error {
+func (s *Session) StoreEmployeeId(id primitive.ObjectID) error {
 	s.Values["employee-id"] = id.Hex()
 	return s.Save(s.request, s.writer)
 }
 
-func (s *Session) GetEmployeeId() (object_id bson.ObjectId, ok bool) {
-	id, ok := s.Values["employee-id"].(string)
-	if ok && bson.IsObjectIdHex(id) {
-		object_id = bson.ObjectIdHex(id)
+func (s *Session) GetEmployeeId() (objectId primitive.ObjectID, ok bool) {
+	var err error
+	var id string
+	if id, ok = s.Values["employee-id"].(string); ok {
+		objectId, err = primitive.ObjectIDFromHex(id)
+		ok = err == nil
 	}
 	return
 }
@@ -60,6 +67,7 @@ func SessionHandler(h func(http.ResponseWriter, *http.Request, *Session), store 
 		if err == nil {
 			h(w, r, s)
 		} else {
+			log.Fatalf("Error in session handler: %v", err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 	})
@@ -67,11 +75,17 @@ func SessionHandler(h func(http.ResponseWriter, *http.Request, *Session), store 
 
 func EmployeeHandler(h func(http.ResponseWriter, *http.Request, *Employee), app *App) http.Handler {
 	return SessionHandler(func(w http.ResponseWriter, r *http.Request, s *Session) {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
 		id, ok := s.GetEmployeeId()
 		employee := Employee{}
 		if ok {
-			err := app.DB.C("employees").FindId(id).One(&employee)
-			ok = (err == nil)
+			res := app.DB.Collection("employees").FindOne(ctx, bson.M{"_id": id})
+			err := res.Err()
+			if err == nil {
+				err = res.Decode(&employee)
+			}
+			ok = err == nil
 		}
 		if ok {
 			h(w, r, &employee)
